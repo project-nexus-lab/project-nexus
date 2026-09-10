@@ -63,6 +63,16 @@ tools arrive (iteration 2) they may create draft proposals or append
 observations. They may never mutate an element, a mapping or a work item
 directly.
 
+This extends to workflow-state classification, not only graph writes: a
+`RunEvent`'s kind and reason are determined by Nexus from the adapter's
+reported observations, not asserted directly by agent-authored text.
+Where Nexus has not yet built a deterministic classifier for a given
+observation, an agent-reported signal may stand in — but it is
+provisional evidence, not authority, and is expected to be replaced as
+soon as a deterministic classifier is evidenced to be buildable. (Added
+after the Architecture Review between Iterations 8 and 9 — see
+`docs/PROJECT_KNOWLEDGE.md` and `docs/history/iteration-9/SCOPE.md`.)
+
 ### R-2 — Containment is structure; provision is behaviour
 
 > `parent_id` means `CONTAINS` and nothing else.
