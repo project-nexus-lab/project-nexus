@@ -12,6 +12,7 @@
     "verify:claude-adapter": "tsx src/cli/verify-claude-adapter.ts",
     "investigate:grant-disclosure": "tsx src/cli/investigate-ancestry-disclosure.ts",
     "investigate:run-blocked": "tsx src/cli/investigate-run-blocked.ts",
+    "investigate:blocked-relevance": "tsx src/cli/investigate-blocked-relevance.ts",
     "serve": "tsx src/cli/serve.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"

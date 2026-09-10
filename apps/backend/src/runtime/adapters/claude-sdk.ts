@@ -46,6 +46,15 @@ import type {
  * `execution.run_telemetry` row per run (`src/execution/telemetry.ts`) —
  * a focused enhancement, not part of Iteration 6 itself. See
  * `apps/backend/README.md`, "Execution telemetry."
+ *
+ * Since Iteration 8 closed: `RunBlocked` (reason `context-insufficient`)
+ * is now classified from `toolResults` directly — a real `GrantRefusedError`
+ * observed during the run — rather than from parsing the agent's final
+ * text (Iteration 9, `docs/history/iteration-9/SCOPE.md`; see
+ * `docs/MVP_ARCHITECTURE_V2.md` R-1's extension to workflow-state
+ * classification). The `BLOCKED:` convention Iteration 8 built is kept,
+ * not deleted — it remains the fallback for a run where the backend has
+ * no deterministic signal to classify from.
  */
 
 /**
@@ -77,7 +86,26 @@ export interface ClaudeSdkAdapterHandle extends AdapterHandle {
    * summary, independent of how trustworthy that summary happens to be.
    */
   toolCalls: Array<{ id: string; name: string; input: unknown }>;
-  /** The matching real MCP tool results, keyed the same way the SDK keys them (`tool_use_id`) — lets a verification script check a *specific* call's outcome directly, rather than trusting the agent's own prose summary of it. */
+  /**
+   * The matching real MCP tool results, keyed the same way the SDK keys
+   * them (`tool_use_id`) — lets a verification script check a *specific*
+   * call's outcome directly, rather than trusting the agent's own prose
+   * summary of it. This is what `events()` now reads directly (Iteration
+   * 9) to classify `RunBlocked`, instead of parsing the agent's final
+   * text for it — `isError` alone is sufficient and unambiguous for that:
+   * `GrantRefusedError` is the only thing that ever produces `isError:
+   * true` here (`buildMcpServer`'s tool handlers re-throw anything else,
+   * crashing the run), so there is exactly one real cause to distinguish,
+   * not several. `docs/history/iteration-9/SCOPE.md` described also
+   * threading `GrantRefusedError`'s own typed `reason` field
+   * (`"expired" | "out-of-grant"`) through this record; implementing it
+   * found that unnecessary — both reasons already map to the same
+   * `RunBlockedReason` (`context-insufficient`), and the SDK's `tool()`
+   * handler signature (`extra: unknown`) has no reliable way to correlate
+   * a handler invocation back to its own `tool_use_id` without relying on
+   * an untyped value — a disclosed simplification from the scope, not a
+   * silent one; see `docs/history/iteration-9/REPORT.md`.
+   */
   toolResults: Array<{ toolUseId: string; isError: boolean; text: string }>;
   /**
    * Telemetry inputs gathered at `start()` time, carried through to the
@@ -157,6 +185,16 @@ export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
               });
             }
           }
+        }
+        // Iteration 9: the terminal result's classification is decided
+        // here, not inside mapMessage() — this is the one place in the
+        // loop with the accumulated toolResults record in scope, which a
+        // pure, single-message function structurally cannot have. See
+        // classifyResultMessage's own doc comment for what changed and why.
+        if (message.type === "result") {
+          const classified = classifyResultMessage(message, h.toolResults);
+          if (classified) yield classified;
+          continue;
         }
         const mapped = mapMessage(message);
         if (mapped) yield mapped;
@@ -312,17 +350,59 @@ export function buildPrompt(workPackage: OpaqueWorkPackage): string {
  * `BLOCKED:` convention `buildPrompt()` now always includes. Deliberately
  * a plain, exact-match line, not free-form parsing of "does this text
  * sound like a refusal" — a looser match would risk classifying an
- * ordinary mention of the word "blocked" as a real signal. Only
- * `context-insufficient` is parsed; `architecture-change-required` and
- * `mapping-missing` are not discoverable with the two MCP tools this
- * project has (see SCOPE.md §2), so this function has no path that
- * produces them.
+ * ordinary mention of the word "blocked" as a real signal.
+ *
+ * Since Iteration 9: no longer the primary path for `context-insufficient`
+ * — `classifyResultMessage` below checks real `toolResults` first. This
+ * remains the *only* path for `architecture-change-required` and
+ * `mapping-missing` (still not discoverable with the two MCP tools this
+ * project has, per `docs/history/iteration-9/SCOPE.md` §"Explicit
+ * Deferrals"), and the fallback for `context-insufficient` on a run where
+ * no `toolResults` entry happens to be `isError: true` but the agent
+ * still judges itself blocked for some other reason.
  */
 const BLOCKED_LINE = /^BLOCKED: context-insufficient — (.+)$/m;
 
 export function parseBlockedSignal(text: string): { note: string } | null {
   const match = BLOCKED_LINE.exec(text);
   return match && match[1] ? { note: match[1].trim() } : null;
+}
+
+/**
+ * Iteration 9 (`docs/history/iteration-9/SCOPE.md`): classifies the
+ * terminal SDK `result` message into a `RunEvent`, given the run's real,
+ * accumulated `toolResults` — the actual answer to the architecture
+ * review's question, "should `context-insufficient` be classified from
+ * backend observations rather than agent-authored text?"
+ *
+ * A real `GrantRefusedError` observed anywhere during the run
+ * (`toolResults.some(r => r.isError)`) is authoritative: it produces
+ * `RunBlocked` unconditionally, before the `BLOCKED:` text convention is
+ * even consulted. `GrantRefusedError` is the only thing that ever
+ * produces `isError: true` here today, so this check needs no further
+ * disambiguation. Per `docs/MVP_ARCHITECTURE_V2.md` R-1's extension to
+ * workflow-state classification: when a deterministic classifier exists,
+ * it wins over an agent-reported signal, not the other way around.
+ *
+ * Whether "any refusal ⇒ blocked" over-triggers for a refusal the agent
+ * successfully worked around is exactly what this iteration's live
+ * scenarios test — not assumed correct by this function's own existence.
+ * See `docs/history/iteration-9/REPORT.md`.
+ */
+export function classifyResultMessage(
+  message: Extract<SDKMessage, { type: "result" }>,
+  toolResults: ReadonlyArray<{ isError: boolean }>,
+): RunEvent {
+  if (message.subtype === "success" && !message.is_error) {
+    if (toolResults.some((r) => r.isError)) {
+      return { kind: "RunBlocked", reason: "context-insufficient" };
+    }
+    const blocked = parseBlockedSignal(message.result);
+    if (blocked) return { kind: "RunBlocked", reason: "context-insufficient" };
+    return { kind: "RunCompleted" };
+  }
+  const detail = message.subtype === "success" ? message.result : message.errors.join("; ") || message.subtype;
+  return { kind: "RunFailed", message: detail };
 }
 
 /**
@@ -335,10 +415,14 @@ export function parseBlockedSignal(text: string): { note: string } | null {
  * once a real runtime exists to translate. `ContextRequested` is emitted
  * when the agent calls either Nexus MCP tool — a real, observed
  * translation (see the Report's probe transcripts), not a guess at what
- * the event ought to mean. `RunBlocked` (Iteration 8) is emitted when the
- * terminal result matches the `BLOCKED:` convention above — the first
- * path this function has ever had toward that event kind; every other
- * path here predates this iteration and is unchanged.
+ * the event ought to mean.
+ *
+ * Since Iteration 9: no longer handles `result` messages at all — that
+ * classification moved to `classifyResultMessage`, called directly from
+ * `events()`, because it needs the run's accumulated `toolResults`, which
+ * this function — deliberately pure and single-message — structurally
+ * cannot see. `events()` intercepts every `result` message before it
+ * would reach here.
  */
 export function mapMessage(message: SDKMessage): RunEvent | null {
   if (message.type === "assistant") {
@@ -346,16 +430,6 @@ export function mapMessage(message: SDKMessage): RunEvent | null {
       (block) => block.type === "tool_use" && block.name.startsWith("mcp__nexus__"),
     );
     return calledNexusTool ? { kind: "ContextRequested" } : null;
-  }
-
-  if (message.type === "result") {
-    if (message.subtype === "success" && !message.is_error) {
-      const blocked = parseBlockedSignal(message.result);
-      if (blocked) return { kind: "RunBlocked", reason: "context-insufficient" };
-      return { kind: "RunCompleted" };
-    }
-    const detail = message.subtype === "success" ? message.result : message.errors.join("; ") || message.subtype;
-    return { kind: "RunFailed", message: detail };
   }
 
   return null;

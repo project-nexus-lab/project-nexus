@@ -4,17 +4,16 @@
  * NOT part of `npm test`, and deliberately not named `verify-*`: this
  * script's outcome was not known in advance.
  *
- * `ClaudeSdkAdapter.mapMessage()` had no path that ever produced a
- * `RunBlocked` event before this iteration — `NoopAdapterB`'s existing
- * coverage of that event kind (Iteration 2) is a hardcoded, canned
- * emission, not a translation of anything real. `buildPrompt()` now
- * always includes a standing `BLOCKED: context-insufficient — <note>`
- * convention; `mapMessage()` now parses the terminal result for it. This
- * script drives one real run built so the agent has a genuine, ordinary
+ * This scenario is unchanged since Iteration 8: a genuine, ordinary
  * reason to call a tool that gets refused — checking a related
- * component's capabilities before treating implementation as ready — and
- * records, precisely, whether the real agent actually uses the
- * convention and whether `events()` correctly translates it.
+ * component's capabilities before treating implementation as ready. What
+ * changed underneath it (Iteration 9,
+ * `docs/history/iteration-9/SCOPE.md`) is how `events()` classifies the
+ * result: `classifyResultMessage` now checks the run's real `toolResults`
+ * for a refusal *before* consulting the agent's `BLOCKED:` text at all.
+ * This script's own classification below distinguishes which path
+ * actually produced `RunBlocked` — acceptance criterion 1 requires this
+ * be shown precisely, not merely that the same event resulted.
  *
  * Uses an in-memory database, the same choice
  * `investigate-ancestry-disclosure.ts` made and for the same reason:
@@ -28,7 +27,7 @@ import { generateUlid } from "../ids/ids.js";
 import { ClaudeSdkAdapter, parseBlockedSignal } from "../runtime/adapters/claude-sdk.js";
 import type { RunEvent } from "../runtime/port.js";
 
-console.log("=== Iteration 8: can a real agent's RunBlocked signal be captured? ===\n");
+console.log("=== Iteration 8/9: can a real agent's RunBlocked signal be captured, and now via backend observation? ===\n");
 
 const db = await openDb();
 await migrate(db);
@@ -114,29 +113,39 @@ const followedConvention = blockedSignal !== null;
 const emittedRunBlocked = events.some((e) => e.kind === "RunBlocked");
 if (blockedSignal) console.log(`(parsed BLOCKED note): ${blockedSignal.note}`);
 
+// Iteration 9: h.toolResults is exactly what classifyResultMessage reads
+// — reconstructing here, from the same handle, what actually decided the
+// classification, independent of the agent's own text.
+const backendObservedRefusal = handle.toolResults.some((r) => r.isError);
+
 console.log("\n--- Classification ---");
 if (!upstreamCall || !wasRefused) {
   console.log(
     "NO OPPORTUNITY: the agent either never called getCapabilitiesOf on the out-of-grant component, or the call was not " +
       "actually refused, so this run produced no evidence either way about the RunBlocked mechanism. See " +
-      "docs/history/iteration-8/REPORT.md for what this means for the scenario design.",
+      "docs/history/iteration-9/REPORT.md for what this means for the scenario design.",
   );
-} else if (followedConvention && emittedRunBlocked) {
+} else if (emittedRunBlocked && backendObservedRefusal) {
   console.log(
-    "MECHANISM CONFIRMED: the agent was genuinely refused, correctly followed the BLOCKED: convention, and events() " +
-      "translated it into a real RunBlocked event — not RunCompleted.",
+    "MECHANISM CONFIRMED, BACKEND PATH: h.toolResults recorded a real refusal, and events() emitted RunBlocked from that " +
+      `alone — independent of whether the agent's text matched the BLOCKED: convention (it ${followedConvention ? "also did" : "did NOT, and it did not need to"}). ` +
+      "This is acceptance criterion 1: the classification now originates from the backend observation, not agent text.",
   );
-} else if (followedConvention && !emittedRunBlocked) {
+} else if (emittedRunBlocked && followedConvention) {
   console.log(
-    "PARSING GAP: the agent followed the BLOCKED: convention in its final text, but events() did not emit RunBlocked — " +
-      "a real bug in mapMessage()'s parsing, worse than the agent simply not signaling, since a real blocked condition " +
-      "would be silently reported as a success.",
+    "MECHANISM CONFIRMED, FALLBACK PATH ONLY: events() emitted RunBlocked, but h.toolResults recorded no isError entry — " +
+      "the BLOCKED: text convention is what produced this classification, not the backend observation. Worth checking " +
+      "why the backend path did not fire for a call that was, per wasRefused above, genuinely refused.",
+  );
+} else if (!emittedRunBlocked && backendObservedRefusal) {
+  console.log(
+    "REGRESSION: h.toolResults recorded a real refusal but events() did not emit RunBlocked — a real bug in " +
+      "classifyResultMessage, not merely a missed agent signal.",
   );
 } else {
   console.log(
-    "AGENT DID NOT SIGNAL: the agent was genuinely refused but its final text does not match the BLOCKED: convention — " +
-      "it worked around the gap, guessed, or reported the refusal only as prose. The mechanism (parsing) was never " +
-      "exercised because the agent never produced the input it looks for.",
+    "AGENT DID NOT SIGNAL, AND NO BACKEND OBSERVATION: the agent was genuinely refused but neither the backend " +
+      "observation nor its own text produced a RunBlocked classification — worth investigating both paths.",
   );
 }
 
