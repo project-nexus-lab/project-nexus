@@ -1,0 +1,67 @@
+# Architecture seed — minimum dataset: Task → Capability → Component → Repository.
+# IDs and shape follow the canonical WORK_PACKAGE_SPEC.md example so that
+# demo Work Package generation reproduces the spec's own worked example.
+
+products:
+  - id: prod.trade-platform
+    name: Trade Platform
+
+domains:
+  - id: dom.billing
+    parent: prod.trade-platform
+    name: Billing
+
+subsystems:
+  - id: subsys.invoice
+    parent: dom.billing
+    name: Invoice
+
+components:
+  - id: comp.invoice-service
+    parent: subsys.invoice
+    name: Invoice Service
+  - id: comp.payment-service
+    parent: subsys.invoice
+    name: Payment Service
+
+capabilities:
+  - id: cap.invoice-discount
+    parent: subsys.invoice
+    name: Apply Invoice Discount
+  - id: cap.create-invoice
+    parent: subsys.invoice
+    name: Create Invoice
+  # Deliberately has no provider below — demonstrates unprovidedCapabilities().
+  - id: cap.invoice-export
+    parent: subsys.invoice
+    name: Export Invoice
+
+provides:
+  - component: comp.invoice-service
+    capability: cap.invoice-discount
+    primary: true
+  - component: comp.invoice-service
+    capability: cap.create-invoice
+    primary: true
+
+dependsOn:
+  - from: comp.invoice-service
+    to: comp.payment-service
+
+decisions:
+  - id: adr.discount-strategy-v1
+    title: Discount Strategy v1
+    statement: >
+      Discounts are applied as a percentage reduction computed at invoice
+      creation time, not retroactively against issued invoices.
+    status: accepted
+    governs:
+      - comp.invoice-service
+
+constraints:
+  - id: con.backward-compatible
+    title: Backward Compatible
+    statement: >
+      Changes must not alter the response shape of existing invoice APIs.
+    appliesTo:
+      - comp.invoice-service

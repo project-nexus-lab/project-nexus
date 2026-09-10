@@ -1,0 +1,15 @@
+# Repository seed. comp.payment-service is deliberately left unmapped —
+# a candidate for a future unmappedComponents() alignment query.
+
+repositories:
+  - id: repo.billing-service
+    name: billing-service
+    provider: github
+    providerRef: acme/billing-service
+    defaultBranch: main
+    implements:
+      - component: comp.invoice-service
+        primary: true
+    fileAnchors:
+      - element: comp.invoice-service
+        pathGlob: InvoiceService.java

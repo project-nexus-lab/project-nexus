@@ -1,0 +1,36 @@
+# Work seed. task.invoice-discount-validation matches WORK_PACKAGE_SPEC.md's
+# worked example exactly. task.draft-example demonstrates a legitimate draft
+# Task with zero Capability links — orphanTasks() reports it, and the import
+# guard (§3.5) would refuse to let it leave 'draft' in that state.
+
+initiatives:
+  - id: init.q1-billing
+    title: Q1 Billing Improvements
+
+epics:
+  - id: epic.invoice-discounts
+    parent: init.q1-billing
+    title: Invoice Discounts
+
+features:
+  - id: feat.invoice-discounts
+    parent: epic.invoice-discounts
+    title: Invoice Discount Support
+
+tasks:
+  - id: task.invoice-discount-validation
+    parent: feat.invoice-discounts
+    title: Validate invoice discount calculation
+    status: ready
+    affects:
+      - cap.invoice-discount
+    acceptanceCriteria:
+      - id: ac.discount-applied
+        statement: A valid discount code reduces the invoice total by the configured percentage.
+      - id: ac.existing-behaviour-unchanged
+        statement: Invoices without a discount code are unaffected.
+
+  - id: task.draft-example
+    parent: feat.invoice-discounts
+    title: Exploratory spike, not yet scoped to a capability
+    status: draft

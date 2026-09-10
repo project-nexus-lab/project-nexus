@@ -1,0 +1,24 @@
+{
+  "name": "nexus-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Nexus Core — Iteration 0: schema, ID validation, YAML import, graph traversals, Work Package generation",
+  "scripts": {
+    "migrate": "tsx src/cli/migrate.ts",
+    "import": "tsx src/cli/import.ts",
+    "verify": "tsx src/cli/verify.ts",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "yaml": "^2.9.0",
+    "zod": "^4.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.20.2",
+    "typescript": "^5.9.3"
+  }
+}

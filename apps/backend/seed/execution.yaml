@@ -1,0 +1,7 @@
+# Execution seed. MVP ships exactly one profile (§11.1).
+profiles:
+  - id: wpp.implementation
+    name: Implementation
+    contextDepth: 0
+    includeAllProviders: false
+    allowAmbiguousRepo: false
