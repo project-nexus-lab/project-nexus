@@ -11,8 +11,26 @@ Read and follow:
 3. docs/WORK_PACKAGE_SPEC.md
 4. docs/REPOSITORY_MODEL.md
 5. docs/AGENT_RUNTIME_MODEL.md
+6. docs/MVP_ARCHITECTURE_V2.md
+7. docs/REVIEW_PRINCIPLES.md
 
-These documents define the platform's architectural principles and are authoritative.
+These documents define the platform's architectural principles and are authoritative. `docs/REVIEW_PRINCIPLES.md` is process, not architecture — it governs how change is evaluated, not what the platform is — but is read and followed with the same weight.
+
+## Architecture Status
+
+`docs/MVP_ARCHITECTURE_V2.md` is the current MVP architecture.
+
+`docs/MVP_ARCHITECTURE.md` is retained for historical reference and design evolution analysis only.
+
+Do not use `docs/MVP_ARCHITECTURE.md` as a source of requirements, domain rules, schemas, workflows, or implementation guidance when conflicts exist.
+
+When evaluating architecture decisions, prefer:
+
+NEXUS_CONSTITUTION.md
+→ supporting model documents
+→ MVP_ARCHITECTURE_V2.md
+
+in that order.
 
 ## Design Rules
 
@@ -53,6 +71,32 @@ Claude
 → Execution runtime
 
 Claude is not part of the platform domain model.
+
+## Project Knowledge
+
+Consult:
+
+- docs/PROJECT_KNOWLEDGE.md
+
+for validated, invalidated and unresolved assumptions.
+
+Historical iteration reports are supporting material and should only be consulted when investigating design history.
+
+## Review Framework
+
+Project Nexus is in iterative development. In addition to implementation
+work, every significant change, iteration, and architectural decision must
+be evaluated through the four reviewers, the Architecture Critic
+perspective, and the Iteration Discipline defined in full in
+`docs/REVIEW_PRINCIPLES.md`. Read and follow that document — it is not
+restated here, so this file doesn't become a second, driftable copy of it.
+
+In short: Constitution Reviewer, Domain Integrity Reviewer, Simplicity
+Reviewer, and Evidence Reviewer, each `PASS` or specific findings; every
+iteration ends in a Report and Lessons under `docs/history/iteration-N/`;
+every Lessons update feeds `docs/PROJECT_KNOWLEDGE.md`, never bypasses it.
+For the exact questions, output formats, and the authority order between
+these documents, see `docs/REVIEW_PRINCIPLES.md`.
 
 ## Working Style
 
