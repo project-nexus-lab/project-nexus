@@ -25,7 +25,8 @@ Package generation. Iteration 1 — the Architecture Change Proposal
 lifecycle and a minimal REST layer — is §10. Iteration 2 — runtime
 independence under a second adapter — is §11. Iteration 3 — MCP grant
 enforcement — is §12. Iteration 4 — repository bootstrap — is §13.
-Iteration 5 — a real GitHub-backed VcsProvider — is §14.)*
+Iteration 5 — a real GitHub-backed VcsProvider — is §14. Iteration 6 — a
+real Claude SDK Adapter — is §15.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -77,6 +78,8 @@ src/
                     a hand-rolled router, no framework dependency.
   runtime/           Iteration 2: the AgentRuntimeAdapter port (§12.2) and
                     two deliberately trivial adapters — see §11 below.
+                    Iteration 6: claude-sdk.ts, a real adapter over
+                    @anthropic-ai/claude-agent-sdk — see §15 below.
   mcp/               Iteration 3: MCP grant construction and enforcement
                     (§9.5) over two grant-checked tool wrappers — see §12
                     below.
@@ -86,19 +89,25 @@ src/
                     (§10.4) — see §13 below. Iteration 5:
                     gh-cli-vcs-provider.ts, a real GitHub-backed
                     VcsProvider — see §14 below.
-  cli/              Five scripts: migrate, import, verify, serve,
-                    verify-github (Iteration 5, not part of npm test).
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14 below.
+  cli/              Six scripts: migrate, import, verify, serve,
+                    verify-github (Iteration 5), verify-claude-adapter
+                    (Iteration 6) — neither verify-* script is part of
+                    npm test.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15 below.
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
 (`../../docs` from here), not inside this app — it governs
 `apps/frontend` and `packages/*` too, not just the backend.
 
-No `src/orchestrator`, no real MCP protocol server, no Claude SDK
-Adapter — those remain deferred, each behind a port validated against a
-no-op stand-in first. A real `VcsProvider` (GitHub) now exists (§14),
-provisioning only — pushing content, branches, and PRs remains deferred.
+No `src/orchestrator` and no standalone, externally-reachable MCP protocol
+server exist yet — both remain deferred. A real `VcsProvider` (GitHub,
+§14) and a real Claude SDK Adapter (§15) both now exist, each validated
+against a no-op/trivial stand-in first, per the same sequencing this
+project has used since Iteration 2. `VcsProvider` covers provisioning
+only — pushing content, branches, and PRs remains deferred. The Claude SDK
+Adapter's real MCP exchange is in-process (hosted by the SDK's own
+transport), not the standalone reachable server §9.2–9.4 describe.
 `src/http` is a
 thin enabling layer (§10.5, §12.5), not the full §16 1a REST surface;
 `src/mcp` is grant enforcement only, not the three-server MCP surface
@@ -231,7 +240,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 110 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 122 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -615,3 +624,83 @@ distinct, larger, undesigned claim, explicitly out of scope for this
 iteration. Multi-visibility provisioning through one running process. Any
 GitHub App, OAuth flow, or enterprise authentication work — not justified
 by any constitutional principle raised so far.
+
+## 15. Iteration 6: a real Claude SDK Adapter
+
+Full detail in `docs/history/iteration-6/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`.
+
+### 15.1 What this validates
+
+The third and last of `docs/PROJECT_KNOWLEDGE.md`'s three tracked "does a
+mechanism validated against a no-op stand-in hold once the real thing
+exists" instances (Open Question 5 — check that document directly for its
+current framing, not this sentence): does the `AgentRuntimeAdapter` port
+(§12.2), validated in Iteration 2 against two trivial adapters, hold once
+driven by a real agent with real behavioral complexity? Answered by
+driving a real Claude agent through one real run — real streaming
+translation, a real in-process MCP server, real grant-checked tool
+calls — with zero changes to `src/runtime/port.ts` or
+`src/runtime/registry.ts`, confirmed directly, not by intention. See
+`docs/history/iteration-6/REPORT.md` § "The live validation run, in full."
+
+### 15.2 `src/runtime/adapters/claude-sdk.ts`
+
+`ClaudeSdkAdapter implements AgentRuntimeAdapter`, using
+`@anthropic-ai/claude-agent-sdk`'s `query()` with all built-in tools
+disabled (`tools: []`) and only a real, in-process MCP server
+(`createSdkMcpServer`/`tool()`) exposing `src/mcp/tools.ts`'s existing,
+unchanged grant-checked `getAncestry`/`getCapabilitiesOf` wrappers.
+`mapMessage()` translates the SDK's real streaming output onto the six
+`RunEvent` kinds — a Nexus MCP tool call → `ContextRequested`, a clean
+result → `RunCompleted`, an error result → `RunFailed`. Most of what the
+SDK actually emits has no `RunEvent` counterpart and is silently absorbed
+— disclosed precisely in the file's own comments, not glossed over.
+
+Needs a `SqlExecutor` at construction, a private MCP-server-construction
+method, and a handle carrying four fields (`query`, `lastResultText`,
+`toolCalls`, `toolResults`) where the two no-op adapters' handles carried
+one (`runId`) — "one row, one class" (§12.7) holds at the level of files
+touched outside the adapter itself (zero), not at the level of what the
+adapter needs to be internally. See `docs/PROJECT_KNOWLEDGE.md` Validated
+for the precise claim, stated without rounding either direction.
+
+### 15.3 `src/cli/verify-claude-adapter.ts` — not part of `npm test`
+
+Spawns a real agent run with real, small API cost, so it is deliberately
+excluded from the hermetic suite, the same reason `verify-github.ts` is:
+
+```
+npm run verify:claude-adapter   # from the repository root; requires an authenticated claude CLI
+```
+
+It seeds a minimal real architecture, constructs a real grant naming one
+in-grant component and excluding another, drives `ClaudeSdkAdapter`
+against them, and checks — against the protocol-level `toolCalls`/
+`toolResults` record, not the agent's own prose summary — that an
+in-grant call succeeds with real data and an out-of-grant call is refused
+as a typed `GrantRefusedError`, both through the real MCP exchange the SDK
+actually uses.
+
+### 15.4 A bug in this iteration's own harness, not in the agent
+
+The first two live runs looked like evidence that a real agent ignores
+literal instructions. It was not: `ClaudeSdkAdapter.start()`'s only inputs
+are `runId`/`workPackage`/`grant`, and the verification script's specific
+instructions were built into a local variable that was only ever
+`console.log`ged, never passed to the adapter. `buildPrompt()` now reads
+`workPackage.acceptanceCriteria` — a real, pre-existing
+`WorkPackagePayload` field — and the script passes its instructions
+through that field instead. See `docs/PROJECT_KNOWLEDGE.md` Invalidated
+and `docs/history/iteration-6/LESSONS.md` "Biggest Surprise" for why this
+is recorded as a finding about this project's own harness, not about
+agent reliability in general.
+
+### 15.5 Deliberately not built
+
+A real Orchestrator (§12.4); `RunBlocked` wired to real proposal-drafting;
+the standalone, externally-reachable MCP server §9.2–9.4 describe (this
+iteration's MCP server is real but in-process); the other five
+Architecture MCP tools and all of Work/Repository MCP; the output path
+(§12.5 — branch push and PR); any role other than `role.implementer`;
+adapter-selection or multi-adapter dispatch logic.
