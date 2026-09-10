@@ -22,7 +22,9 @@ each iteration proved, disproved, or left open, see
 
 *(§1–§9 below describe Iteration 0: schema, import, traversals, Work
 Package generation. Iteration 1 — the Architecture Change Proposal
-lifecycle and a minimal REST layer — is §10.)*
+lifecycle and a minimal REST layer — is §10. Iteration 2 — runtime
+independence under a second adapter — is §11. Iteration 3 — MCP grant
+enforcement — is §12. Iteration 4 — repository bootstrap — is §13.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -77,8 +79,12 @@ src/
   mcp/               Iteration 3: MCP grant construction and enforcement
                     (§9.5) over two grant-checked tool wrappers — see §12
                     below.
+  repository/        Iteration 4: the repository bootstrap state machine
+                    (§10.1), a VcsProvider port + no-op implementation,
+                    and the managed-region generation/drift mechanism
+                    (§10.4) — see §13 below.
   cli/              Four scripts: migrate, import, verify, serve.
-test/               node:test suite — the executable proof for §7/§10/§11/§12 below.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13 below.
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
@@ -86,10 +92,13 @@ test/               node:test suite — the executable proof for §7/§10/§11/�
 `apps/frontend` and `packages/*` too, not just the backend.
 
 No `src/orchestrator`, no real MCP protocol server, no Claude SDK
-Adapter — those are 1f and the rest of 1e. `src/http` is a thin enabling
-layer (§10.5, §12.5), not the full §16 1a REST surface; `src/mcp` is
-grant enforcement only, not the three-server MCP surface §9.2–9.4
-describe.
+Adapter, no real `VcsProvider` (GitHub) — those remain deferred, each
+behind a port validated against a no-op stand-in first. `src/http` is a
+thin enabling layer (§10.5, §12.5), not the full §16 1a REST surface;
+`src/mcp` is grant enforcement only, not the three-server MCP surface
+§9.2–9.4 describe; `src/repository` is the bootstrap state machine and
+generation pipeline only, not real VCS provisioning or the full
+`POST /alignment/verify` rule set.
 
 ## 3. Technology stack
 
@@ -216,7 +225,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 93 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 102 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -464,3 +473,66 @@ MCP surface — no real MCP protocol, no Work MCP, no Repository MCP, no
 Orchestrator to dispatch a real `ExecutionRun` and issue a grant
 automatically. `runId` is supplied by the caller, the same stand-in
 pattern Iteration 1 used before any Orchestrator existed.
+
+## 13. Iteration 4: repository bootstrap
+
+Full detail in `docs/history/iteration-4/REPORT.md` and `LESSONS.md`.
+
+### 13.1 What this validates
+
+§16's own literal acceptance bar for this slice of work: *"One repo
+bootstrapped, CI green, a hand-edit outside the markers does not trip the
+check."* `test/repository.test.ts` reproduces exactly that — edit outside
+the managed-region markers, no drift; edit inside, drift detected;
+markers deleted entirely, drift rather than a crash.
+
+### 13.2 `src/repository/`
+
+`lifecycle.ts` — the bootstrap state machine (§10.1):
+`declareRepository → provisionRepository → registerMapping →
+generateProjection → activateRepository`, each refusing an out-of-order
+call. The third independent implementation of the same typed-state-machine
+pattern already used for `ArchitectureChangeProposal` (Iteration 1) and
+`WorkItem` (also Iteration 1) — reused, not reinvented, down to the error
+class shapes.
+
+`vcs-provider.ts` — the `VcsProvider` port (§10.2: *"VcsProvider is a
+port; GitHub is one adapter"*) plus `NoopVcsProvider`. Same sequencing
+this project used for `AgentRuntimeAdapter` (Iteration 2) and MCP grant
+enforcement (Iteration 3): validate the mechanism against a fake
+implementation before any real integration exists.
+
+`generate.ts` — `render()` (§10.4), a pure function producing
+`.nexus/repository.json`, `.nexus/architecture.snapshot.json`, and
+`.github/workflows/nexus-alignment.yml`, each bounded by the exact
+`<!-- nexus:begin generated -->` / `<!-- nexus:end generated -->` markers
+the source document specifies. `repo.generated_region` (schema since
+Iteration 0, empty until now) stores the hash of each file's managed
+region only — never the whole file — which is what makes an edit outside
+the markers invisible to drift detection and an edit inside it, not.
+
+`localSubgraph` (`src/graph/traversals.ts`) — the eighth and last of
+§8.4's named traversals, present in the source document since v2 and
+unused by every iteration until this one needed it for
+`.nexus/architecture.snapshot.json`.
+
+### 13.3 A disclosed, pre-existing gap made concrete, not created
+
+`src/import/repository.ts` (Iteration 0) has always bulk-inserted
+`repo.repository` rows directly from YAML, bypassing this state machine
+entirely — true since Iteration 0, simply nothing to be inconsistent
+*with* until this iteration built the flow §10.2 requires. Not
+reconciled here; see `docs/history/iteration-4/REPORT.md` §
+"Architectural deviations" for why retrofitting the import path was left
+for a dedicated pass rather than done quickly alongside this one.
+
+### 13.4 Deliberately not built
+
+`CLAUDE.md`/`AGENTS.md` generation (needs a real `runtime.hint_file_template`
+row, which needs a real adapter, which does not exist); the full
+`POST /alignment/verify` endpoint and rule set beyond the managed-region
+comparison (§10.5 — the rest reuses traversal/alignment functions that
+already exist and is cheap to wire up once needed); anchor verification,
+dependency-cycle enforcement, capability coverage by tests (§10.6, already
+deferred in the source document itself); real GitHub provisioning, branch
+creation, or PR opening.

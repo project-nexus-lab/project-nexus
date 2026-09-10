@@ -51,6 +51,9 @@ Demonstrated correct by direct implementation evidence.
 | Runtime independence holds when a second adapter is built against the §12.2 port — adding it costs "one row, one class" (§12.7), for adapters with no real behavioral complexity | Iteration 2 | Three independent checks: a structural test asserting the second adapter's only import is the port; an import-surface diff against the first adapter showing zero new dependencies; `port.ts` and `registry.ts` each written once and never touched again to accommodate the second adapter. **Validated for trivial adapters only — see Unproven for the real-adapter case.** |
 | The MCP grant model (§9.5) is a real enforcement boundary: an out-of-grant tool call is refused, an expired grant refuses everything | Iteration 3 | Three independent forms of evidence: an in-process test, an HTTP-driven test against a real `http.Server`, and a hand-run `curl` transcript, all reproducing the same issue-grant → succeed-in-grant → refuse-out-of-grant sequence. **Validated for direct call-target enforcement only — see Unproven for the narrower "can still learn X exists" gap.** |
 | §9.5's grant-widening formula (`allowedElementIds = WP elements ∪ impactOf(components, context_depth + 1)`) is genuinely wider than the Work Package's own bound, not the same value computed twice | Iteration 3 | The seed's one-hop `comp.invoice-service dependsOn comp.payment-service` edge is present in the grant (`context_depth + 1 = 1`) but absent from the Work Package's own `impactedComponents` (`context_depth = 0`), asserted together in one test. |
+| The managed-region mechanism (§10.4) genuinely distinguishes a human edit outside the markers (no false drift) from one inside (drift correctly detected) | Iteration 4 | §16's own literal acceptance bar for this work, reproduced directly: prepend/append text outside the markers → no drift, unchanged hash; mutate a value inside the markers → drift, changed hash; markers deleted entirely → drift, not a crash. |
+| `render()` (§10.4) is genuinely a pure function of graph state — identical inputs produce byte-identical output | Iteration 4 | Regenerating a repository's projection and comparing every file against itself via `checkDrift` finds zero drift, achieved by sorting inputs inside `render()` rather than trusting caller order — the same discipline `buildWorkPackage`'s canonical payload already required in Iteration 0. |
+| The repository bootstrap state machine (§10.1) enforces its own transition order as a real invariant, not just a `bootstrap_state` column nobody checks | Iteration 4 | Every one of the five transitions tested both legally and illegally from a non-immediate-predecessor state; `registerMapping` confirmed legal a second time once already `mapped` ("at least one," not "exactly one," per §3.6). Third independent implementation of the same typed-state-machine pattern already used for `ArchitectureChangeProposal` and `WorkItem`. |
 
 ---
 
@@ -70,6 +73,7 @@ concrete experiment a future iteration can run directly.
 | The near-zero marginal cost of a second adapter (validated, above) holds for a *real* adapter — one expressing actual behavioral differences (streaming, tool-call translation, vendor config) through the port, not a canned event sequence | Iteration 2 | Both adapters built so far are deliberately trivial; neither exercised anything the port might need to grow to support (structured tool calls, streaming delivery, per-vendor configuration surfaced through `capabilities()`). | Build the Claude SDK Adapter (§12.7), the first real adapter, and re-run the same three checks (structural, comparative, no-second-pass on the port/registry) against it. |
 | The grant model bounds what an agent can *learn*, not only what it can *directly query* | Iteration 3 | `getAncestry`'s grant check applies to its target id only; the returned ancestry chain is not filtered against `allowedElementIds`, so an in-grant call can surface the id, kind, and name of an out-of-grant ancestor (e.g. the containment root). A disclosed, deliberate reading of an ambiguous line in §9.5, not a bug — but it makes the *provable* blast-radius bound narrower than "the agent cannot learn X exists." | Build a scenario where this distinction actually matters to a real or realistic agent's behavior before deciding whether result-filtering is worth the cost to the traversal layer's simplicity — evidence before redesign, not by default. |
 | A real adapter can actually use a grant to drive genuine (non-simulated) MCP protocol calls | Iteration 3 | Grant construction and enforcement are validated against direct function calls and HTTP requests written for this iteration's own tests — never against a real MCP client/server exchange, because no real MCP protocol server exists (deliberately deferred, see `docs/history/iteration-3/REPORT.md`). | Build the real MCP protocol layer (§16 1e) and the Claude SDK Adapter (§12.7) together, and check whether the grant as currently shaped is sufficient for an actual tool-call round trip. |
+| The repository bootstrap mechanism, validated against `NoopVcsProvider`, holds once a real `VcsProvider` (GitHub) exists | Iteration 4 | `NoopVcsProvider.create()` does no real work and cannot fail partway through a step the way a real GitHub API call could (rate limits, permission errors, name collisions, network failure). The state machine has never been driven against a provider capable of genuine mid-step failure. | Build a real GitHub `VcsProvider`; specifically check what happens when `provisionRepository` fails partway — does the repository stay cleanly in `declared`, or end up in a state nothing here ever produced because the no-op provider cannot fail. |
 
 ---
 
@@ -114,6 +118,16 @@ one architectural bet.
 4. **Do the graph traversals hold up past toy scale?** Every traversal is
    correctness-proven; none has been measured against a graph resembling a
    real organization's architecture.
+5. **Does every mechanism validated against a no-op/fake stand-in
+   (`AgentRuntimeAdapter`, the MCP protocol boundary, now `VcsProvider`)
+   hold once the real thing behind it exists?** Not one question but a
+   recurring shape of one, appearing a third time as of Iteration 4 (see
+   `docs/history/iteration-4/LESSONS.md`, "Final Verdict"). Recorded here
+   as its own entry because the *pattern* is now itself worth watching —
+   every "real X" question so far has been answered by building that one
+   real X, not by this document's own analysis predicting the answer —
+   which is a datum about how this project actually resolves uncertainty,
+   not only about any one port.
 
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to
