@@ -1,5 +1,7 @@
 import type { NexusDb } from "../db/client.js";
 import { ancestry, capabilitiesOf, implementationPath } from "../graph/traversals.js";
+import { buildGrant, type McpGrant } from "../mcp/grant.js";
+import { getAncestry, getCapabilitiesOf } from "../mcp/tools.js";
 import {
   applyProposal,
   approveProposal,
@@ -94,6 +96,35 @@ export function buildRoutes(db: NexusDb): Router {
   router.post("/proposals/:id/apply", async (ctx) => {
     const result = await applyProposal(db, ctx.params.id as string);
     return { status: 200, body: result };
+  });
+
+  // --- MCP grant enforcement (§9.5) ---------------------------------------
+  // Enabling layer, same status as §10.5 in Iteration 1: makes a refusal
+  // demonstrable by hand, not the full §16 1e MCP surface (three servers,
+  // real MCP protocol). No ExecutionRun dispatch exists yet (§16 1f) to
+  // issue a grant automatically — POST /grants stands in for that step,
+  // the same way POST /tasks/:id/block stands in for an Orchestrator
+  // reacting to RunBlocked.
+
+  router.post("/grants", async (ctx) => {
+    const { taskId, profileId, runId } = ctx.body as {
+      taskId: string;
+      profileId: string;
+      runId: string;
+    };
+    const wp = await buildWorkPackage(db, taskId, profileId);
+    const grant = await buildGrant(db, wp, runId);
+    return { status: 201, body: grant };
+  });
+
+  router.post("/mcp/architecture/ancestry", async (ctx) => {
+    const { grant, elementId } = ctx.body as { grant: McpGrant; elementId: string };
+    return { status: 200, body: await getAncestry(db, grant, elementId) };
+  });
+
+  router.post("/mcp/architecture/capabilities", async (ctx) => {
+    const { grant, componentId } = ctx.body as { grant: McpGrant; componentId: string };
+    return { status: 200, body: await getCapabilitiesOf(db, grant, componentId) };
   });
 
   return router;

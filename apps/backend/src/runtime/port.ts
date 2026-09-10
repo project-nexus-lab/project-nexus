@@ -11,26 +11,30 @@
  * ownership claim; see `docs/history/iteration-2/REPORT.md`.
  *
  * No orchestrator exists yet (§16 1f, still deferred) and nothing here
- * assumes one. This module exists to answer one question:
- * docs/PROJECT_KNOWLEDGE.md's #1 Open Question — does adding a *second*
- * adapter against this port actually cost only "one row, one class" (§12.7),
- * or does the port itself need to grow to accommodate a second
- * implementation? See `src/runtime/adapters/` for the two adapters that
- * test this directly, and `test/runtime.test.ts` for how.
+ * assumes one. This module was built to answer what was
+ * docs/PROJECT_KNOWLEDGE.md's #1 Open Question at the time (Iteration 2):
+ * does adding a *second* adapter against this port actually cost only "one
+ * row, one class" (§12.7), or does the port itself need to grow to
+ * accommodate a second implementation? See `src/runtime/adapters/` for the
+ * two adapters that test this directly, and `test/runtime.test.ts` for how.
+ * Deliberately not restated as "the" current #1 question here — check
+ * docs/PROJECT_KNOWLEDGE.md itself for the current ranking rather than
+ * this comment, which will not be kept in sync with it.
  */
+
+import type { McpGrant } from "../mcp/grant.js";
 
 export type AdapterId = string;
 
-/** §9.5's run-scoped grant shape. No enforcement exists yet (Open Question #2,
- * MCP grants) — this is the type contract `start()` needs from the port, not
- * a claim that grants are checked anywhere yet. */
-export interface McpGrant {
-  runId: string;
-  workPackageId: string;
-  allowedElementIds: string[];
-  allowedRepositoryIds: string[];
-  expiresAt: string; // ISO timestamp
-}
+/**
+ * §9.5's run-scoped grant. Defined and enforced in `src/mcp/grant.ts`
+ * (Iteration 3) — this file only needs the type for `start()`'s
+ * signature, the same way it needs `OpaqueWorkPackage` without owning
+ * `buildWorkPackage`. It used to be defined here directly, back when
+ * nothing else existed yet to own it (Iteration 2); re-exported for
+ * anything that imported it from this path before Iteration 3.
+ */
+export type { McpGrant };
 
 export interface AdapterCapabilities {
   supportedRoles: string[]; // role.* ids, from runtime.agent_role

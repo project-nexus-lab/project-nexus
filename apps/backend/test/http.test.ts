@@ -197,3 +197,31 @@ test("POST /tasks/:id/block against an already-applied proposal returns 409", as
   assert.equal(block.body.error, "ProposalNotBlockableError");
   assert.equal(block.body.reason, "terminal");
 });
+
+// Iteration 3: MCP grant enforcement (§9.5), demonstrable over HTTP.
+test("POST /grants issues a grant, then in-grant and out-of-grant tool calls behave as the grant says", async () => {
+  const grantRes = await call("POST", "/grants", {
+    taskId: "task.invoice-discount-validation",
+    profileId: "wpp.implementation",
+    runId: "run.http-test",
+  });
+  assert.equal(grantRes.status, 201);
+  const grant = grantRes.body;
+  assert.ok(grant.allowedElementIds.includes("comp.invoice-service"));
+  assert.ok(!grant.allowedElementIds.includes("cap.invoice-export"));
+
+  const inGrant = await call("POST", "/mcp/architecture/ancestry", {
+    grant,
+    elementId: "comp.invoice-service",
+  });
+  assert.equal(inGrant.status, 200);
+  assert.ok(Array.isArray(inGrant.body));
+
+  const outOfGrant = await call("POST", "/mcp/architecture/ancestry", {
+    grant,
+    elementId: "cap.invoice-export",
+  });
+  assert.equal(outOfGrant.status, 403);
+  assert.equal(outOfGrant.body.error, "GrantRefusedError");
+  assert.equal(outOfGrant.body.reason, "out-of-grant");
+});

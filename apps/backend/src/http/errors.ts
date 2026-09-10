@@ -1,4 +1,5 @@
 import { InvalidIdError } from "../ids/ids.js";
+import { GrantRefusedError } from "../mcp/grant.js";
 import {
   IllegalProposalTransitionError,
   InvalidProposalError,
@@ -34,6 +35,9 @@ export function statusForError(err: unknown): number {
   }
   if (err instanceof ProposalNotBlockableError) {
     return err.reason === "not-found" ? 404 : 409;
+  }
+  if (err instanceof GrantRefusedError) {
+    return 403; // the request is understood; this grant does not authorize it
   }
   if (err instanceof WorkPackageGateError) {
     return 422; // semantically valid request; current graph state cannot satisfy it
