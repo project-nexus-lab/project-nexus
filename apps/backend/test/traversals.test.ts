@@ -7,6 +7,7 @@ import {
   capabilitiesOf,
   governanceOfElements,
   implementationPath,
+  localSubgraph,
   providersOf,
   resolve,
 } from "../src/graph/traversals.js";
@@ -83,6 +84,18 @@ test("governanceOf union: governance reachable via either of two elements is ded
 test("resolve(id) returns the id itself when no succession edge exists", async () => {
   const rows = await resolve(db, "comp.invoice-service");
   assert.deepEqual(rows, ["comp.invoice-service"]);
+});
+
+test("localSubgraph(component): component + provided capabilities + direct dependencies (§8.4), the eighth named traversal, first used in Iteration 4", async () => {
+  const subgraph = await localSubgraph(db, "comp.invoice-service");
+  assert.deepEqual(subgraph.component, { id: "comp.invoice-service", name: "Invoice Service" });
+  assert.deepEqual(subgraph.capabilities, ["cap.create-invoice", "cap.invoice-discount"]);
+  assert.deepEqual(subgraph.dependsOn, ["comp.payment-service"]);
+});
+
+test("localSubgraph(component) for a component with no dependencies returns an empty dependsOn, not an error", async () => {
+  const subgraph = await localSubgraph(db, "comp.payment-service");
+  assert.deepEqual(subgraph.dependsOn, []);
 });
 
 test("orphanTasks() flags the draft task with no affects link, and only that one", async () => {

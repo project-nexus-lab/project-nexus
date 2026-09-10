@@ -149,3 +149,40 @@ export async function resolve(db: SqlExecutor, id: string): Promise<string[]> {
   const { rows } = await db.query<{ id: string }>(`select * from graph.resolve($1)`, [id]);
   return rows.map((r) => r.id);
 }
+
+export interface LocalSubgraph {
+  component: { id: string; name: string };
+  /** capability ids the component provides, sorted for deterministic output */
+  capabilities: string[];
+  /** direct (depth-1 only) dependency component ids, sorted */
+  dependsOn: string[];
+}
+
+/**
+ * localSubgraph(component): Component + provided capabilities + direct
+ * dependencies (§8.4). The last of the eight named traversals — present in
+ * §8.4 since v2 but, unlike the other seven, never called by any earlier
+ * iteration until §10.3 needed it for `.nexus/architecture.snapshot.json`.
+ * Composed in TypeScript from already-existing traversals
+ * (`capabilitiesOf`, `impactOf` at depth 1), the same pattern
+ * `governanceOfElements` already established, rather than a ninth SQL
+ * function for a query this shallow.
+ */
+export async function localSubgraph(db: SqlExecutor, componentId: string): Promise<LocalSubgraph> {
+  const [anc, caps, deps] = await Promise.all([
+    ancestry(db, componentId),
+    capabilitiesOf(db, componentId),
+    impactOf(db, componentId, 1),
+  ]);
+
+  const self = anc.find((row) => row.depth === 0);
+  if (!self) {
+    throw new Error(`localSubgraph: ${componentId} does not exist`);
+  }
+
+  return {
+    component: { id: self.id, name: self.name },
+    capabilities: caps.map((c) => c.capability_id).sort(),
+    dependsOn: deps.map((d) => d.component_id).sort(),
+  };
+}
