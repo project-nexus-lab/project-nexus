@@ -48,6 +48,7 @@ Demonstrated correct by direct implementation evidence.
 | `applyProposal`'s mint + retire + succession is genuinely transactional, not just schema-shaped | Iteration 1 | PGlite's rollback-on-throw behavior verified directly against this project's driver (not assumed); a proposal with one legal and one illegal operation leaves neither element behind and the proposal's state at `approved`, not `applied`. |
 | §5.6's retirement policy (refused on a live Task or active Repository reference; permitted when the same proposal supplies succession) is fully specified by its two clauses and one escape hatch | Iteration 1 | Three isolated tests, one per clause, all passing against the real schema — no additional clause needed. |
 | The §3.5 no-orphan-task invariant, extracted into one shared function, agrees with itself across every caller | Iteration 1 | `assertReadyInvariants` now serves both the Iteration 0 YAML-import guard and the new lifecycle `markReady` function; all 71 tests pass with one implementation instead of two. |
+| Runtime independence holds when a second adapter is built against the §12.2 port — adding it costs "one row, one class" (§12.7), for adapters with no real behavioral complexity | Iteration 2 | Three independent checks: a structural test asserting the second adapter's only import is the port; an import-surface diff against the first adapter showing zero new dependencies; `port.ts` and `registry.ts` each written once and never touched again to accommodate the second adapter. **Validated for trivial adapters only — see Unproven for the real-adapter case.** |
 
 ---
 
@@ -62,10 +63,10 @@ concrete experiment a future iteration can run directly.
 | The MCP grant model (§9.5) actually bounds agent blast radius, not just describes an intention | Iteration 0 | No MCP server exists yet; the formula's missing half (`impactOf`) is wired into `buildWorkPackage`, but nothing has ever attempted — and been refused — an out-of-grant call. | Build one MCP tool, issue one grant, assert an out-of-grant call is refused. `alignment.liveReferences` (Iteration 1) is a second working example of the same read-only, cross-context query shape a grant check would need — reuse the pattern rather than inventing a new one. |
 | `WorkPackageProfile.context_depth` correctly bounds `impactOf` for depth > 0 | Iteration 0 | The seed dataset ships exactly one profile at `context_depth: 0`. The nonzero-depth code path went unexecuted for most of Iteration 0 without any test failing. | Seed a real profile at depth ≥ 1 against a component with a real multi-hop dependency chain; have a human judge whether the resulting impact set is useful. |
 | A component served by more than one repository resolves to a *usable* Work Package, not just a mechanically correct one | Iteration 0 | Only tested against a synthetic fixture built to trigger the ambiguity branch — no real content behind either repository. | Seed a second real repository against a real component; generate a Work Package with ambiguity allowed; have a human judge the result. |
-| Runtime independence holds when a second adapter is actually built (§12.7's "one row, one class" claim) | Iteration 0 | Zero vendor strings exist in the core schemas today (real, static evidence) — but so do zero adapters, not one. That's necessary evidence, not sufficient evidence for a claim about adding a *second* one. | Build two trivial no-op adapters against the §12.2 port; confirm the second requires zero changes to any core schema. |
 | The recursive-CTE traversal layer performs acceptably at realistic scale | Iteration 0 | Correctness proven at ~10 architecture elements, 5 work items, 1 dependency edge. Never measured against anything resembling a real organization's graph. | Generate a synthetic graph at representative scale (e.g. 500 components, 2,000 tasks, depth 5); measure traversal latency against the MCP call budget. |
 | The in-process, direct-function-call form of `RunBlocked` / `ProposalApplied` (§2.2) will still be the right shape once a real Orchestrator (1f) exists | Iteration 1 | No event type, dispatcher, or subscription mechanism exists yet — "the event" is just which function gets called (`blockTask`, `releaseBlockedTasks`), by a test or a human today. | When 1f's Orchestrator is built, wire its `RunBlocked` handling to call these functions as real event effects; see whether the signatures survive or need reshaping around an actual event payload. |
 | R-1's write-authorization boundary ("the runtime never holds a write credential") holds against a real caller, not just in the data model | Iteration 1 | The state machine enforces R-1's substance (agent-authored proposals are always `draft`; only a human principal can approve), but nothing yet distinguishes "the platform, acting on a genuine `RunBlocked` event" from "any HTTP caller" — Authentication remains out of scope. Not new, but newly testable now that a real HTTP surface exists. | Not this platform's evidence to gather until Authentication is in scope — revisit then rather than assuming the state machine alone was always sufficient. |
+| The near-zero marginal cost of a second adapter (validated, above) holds for a *real* adapter — one expressing actual behavioral differences (streaming, tool-call translation, vendor config) through the port, not a canned event sequence | Iteration 2 | Both adapters built so far are deliberately trivial; neither exercised anything the port might need to grow to support (structured tool calls, streaming delivery, per-vendor configuration surfaced through `capabilities()`). | Build the Claude SDK Adapter (§12.7), the first real adapter, and re-run the same three checks (structural, comparative, no-second-pass on the port/registry) against it. |
 
 ---
 
@@ -91,17 +92,17 @@ Important unresolved issues, in priority order. These are broader than any
 single row above — several draw together multiple Unproven entries into
 one architectural bet.
 
-1. **Does runtime independence hold under an actual second adapter?** The
-   Constitution's own top-line principle. Currently supported only by the
-   absence of evidence against it (no vendor strings in core schemas), not
-   by evidence for it (no adapters — first or second — have ever been
-   built against the port).
-2. **Is the MCP grant model a real enforcement boundary, or only a
+1. **Is the MCP grant model a real enforcement boundary, or only a
    documented convention?** The stated reason RBAC was judged safe to defer
    in the MVP (§15). Currently a formula, not a demonstrated refusal —
    though Iteration 1's `alignment.liveReferences` is now a second working
    example of the cross-context, read-only query shape a real grant check
    would need.
+2. **Does runtime independence hold for a *real* second adapter, not just
+   two deliberately trivial ones?** Iteration 2 validated the marginal
+   cost for adapters with no behavioral complexity (see Validated, above);
+   whether that holds once an adapter has real work to translate through
+   the port is unresolved until the Claude SDK Adapter (§12.7) exists.
 3. **Should Nexus hold file-level knowledge at all?** §13 of
    `MVP_ARCHITECTURE_V2.md` is explicitly unresolved in the source
    document itself; Iteration 0 shipped Alternative A (curated
@@ -113,6 +114,10 @@ one architectural bet.
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to
 close?* — see Validated, above.
+
+Resolved as of Iteration 2 for the trivial case, narrowed rather than
+removed: *does runtime independence hold under an actual second adapter?*
+— replaced above by the real-adapter question that remains.
 
 See the corresponding `docs/history/iteration-N/LESSONS.md` →
 "Recommended next-step validation" for the smallest experiment that would

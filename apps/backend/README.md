@@ -209,7 +209,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 77 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 84 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -361,3 +361,43 @@ in `docs/history/iteration-1/REPORT.md` about what this means for R-1
 today), an AcceptanceCriterion-authoring endpoint, and the rest of §16 1a's
 surface (`resolve`, `governanceOf` as HTTP, pagination). Each is additive
 over what exists, not a redesign of it.
+
+## 11. Iteration 2: runtime independence under a second adapter
+
+Full detail in `docs/history/iteration-2/REPORT.md` and `LESSONS.md`.
+
+### 11.1 What this validates
+
+`docs/PROJECT_KNOWLEDGE.md`'s #1-ranked Open Question at the time:
+does adding a *second* `AgentRuntimeAdapter` against the §12.2 port cost
+only "one row, one class" (§12.7), or does the port itself have to grow?
+Answered with three independent checks, not an inference from a passing
+test suite — see `test/runtime.test.ts`'s last case and
+`docs/history/iteration-2/REPORT.md` § "The actual answer to the Open
+Question."
+
+### 11.2 `src/runtime/`
+
+`port.ts` — the `AgentRuntimeAdapter` interface (§12.2) and the full
+six-event `RunEvent` vocabulary, unchanged since v2 added `RunBlocked`.
+`adapters/noop-a.ts` and `adapters/noop-b.ts` — two deliberately trivial
+adapters; B's file is the actual experiment (its imports are statically
+checked to be the port and nothing else). `registry.ts` — `registerAdapter`
+and `listAdaptersForRole`, writing for the first time to
+`runtime.adapter_registration` and `adapter_role_support`, tables that
+have existed empty since Iteration 0.
+`db/migrations/0010_runtime_role_vocabulary.sql` seeds the full §4.4 role
+vocabulary (six roles) as data — the first write to `runtime.agent_role`
+too.
+
+Both adapters are permanently trivial by design and are not a starting
+point for the eventual Claude SDK Adapter (§12.7) — see "Technical debt
+intentionally created" in the Iteration 2 report.
+
+### 11.3 What this does not answer
+
+The validated claim is scoped to adapters with no real behavioral
+complexity. Whether the same near-zero marginal cost holds for a *real*
+adapter — one that has to express streaming, tool-call translation, or
+vendor-specific configuration through the port — is `docs/PROJECT_KNOWLEDGE.md`'s
+current #2 Open Question, not resolved here on purpose.
