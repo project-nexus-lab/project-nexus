@@ -50,7 +50,7 @@ re-asserts something the last one already disproved.
 
 ## Review Framework
 
-Before accepting major changes, evaluate them through four reviewers.
+Before accepting major changes, evaluate them through five reviewers.
 These are logical reviewers — implement them as subagents, separate
 review passes, or distinct report sections, whichever fits the change.
 
@@ -137,6 +137,49 @@ Questions asked:
 
 Expected output format: findings grouped under `VALIDATED`, `UNPROVEN`,
 and `INVALIDATED`, each with supporting evidence.
+
+### Consistency Auditor
+
+Protects:
+
+- architecture
+- documentation
+- reports
+- lessons
+- project knowledge
+- tests
+- implementation
+
+The other four reviewers each protect one *thing* — the Constitution, the
+domain model, simplicity, the evidence itself — by looking at a change on
+its own terms. The Consistency Auditor protects the *agreement between*
+every artifact a change touches — it exists because each of the others can
+individually pass while two artifacts they didn't compare against each
+other quietly disagree: code that does the right thing with a comment that
+describes the wrong thing, a report that claims a test count the test
+suite doesn't produce, a discovery made while implementing that never
+reaches `docs/PROJECT_KNOWLEDGE.md`. Iteration 1's own pre-commit review
+found exactly this shape of gap twice (see
+`docs/history/iteration-1/LESSONS.md`, "Biggest Surprise") before this
+reviewer had a name — formalised here so it is asked for deliberately on
+every significant change, not rediscovered by accident.
+
+Questions asked:
+
+- Does implementation enforce documented invariants?
+- Do comments accurately describe behavior?
+- Do tests reflect documented behavior?
+- Are architectural decisions reflected in code?
+- Are implementation discoveries reflected in PROJECT_KNOWLEDGE?
+- Do reports accurately describe what was implemented?
+
+Expected output format: `PASS`, or `CONSISTENCY FINDINGS` with concrete
+discrepancies and proposed corrections.
+
+A consistency finding is considered complete only when all affected
+artifacts are aligned — fixing the code without correcting the comment
+that described the old behaviour, or fixing a bug without recording it in
+the iteration's Report, is not a closed finding.
 
 ---
 
@@ -246,6 +289,8 @@ A significant change should only be accepted if:
 - Domain Integrity Reviewer passes
 - Simplicity Reviewer passes
 - Evidence Reviewer classifies assumptions honestly
+- Consistency Auditor passes, or its findings are resolved (all affected
+  artifacts realigned, not just the one most convenient to fix)
 
 Explicitly identify what we know, what we believe, and what we have not
 tested.

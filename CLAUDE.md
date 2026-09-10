@@ -86,17 +86,25 @@ Historical iteration reports are supporting material and should only be consulte
 
 Project Nexus is in iterative development. In addition to implementation
 work, every significant change, iteration, and architectural decision must
-be evaluated through the four reviewers, the Architecture Critic
+be evaluated through the five reviewers, the Architecture Critic
 perspective, and the Iteration Discipline defined in full in
 `docs/REVIEW_PRINCIPLES.md`. Read and follow that document — it is not
 restated here, so this file doesn't become a second, driftable copy of it.
 
 In short: Constitution Reviewer, Domain Integrity Reviewer, Simplicity
-Reviewer, and Evidence Reviewer, each `PASS` or specific findings; every
-iteration ends in a Report and Lessons under `docs/history/iteration-N/`;
-every Lessons update feeds `docs/PROJECT_KNOWLEDGE.md`, never bypasses it.
-For the exact questions, output formats, and the authority order between
-these documents, see `docs/REVIEW_PRINCIPLES.md`.
+Reviewer, Evidence Reviewer, and Consistency Auditor, each `PASS` or
+specific findings; every iteration ends in a Report and Lessons under
+`docs/history/iteration-N/`; every Lessons update feeds
+`docs/PROJECT_KNOWLEDGE.md`, never bypasses it. For the exact questions,
+output formats, and the authority order between these documents, see
+`docs/REVIEW_PRINCIPLES.md`.
+
+Two commands invoke this process directly rather than requiring it to be
+restated each time: `/review [scope]` applies the five reviewers (default
+scope: uncommitted changes) — distinct from the general-purpose
+`code-review` skill, which checks different things; `/iteration-close
+<N>` runs the Iteration Discipline for iteration N. Both are thin pointers
+into `docs/REVIEW_PRINCIPLES.md`, defined in `.claude/commands/`.
 
 ## Working Style
 
