@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { NexusDb } from "../src/db/client.js";
 import { importArchitecture } from "../src/import/architecture.js";
-import { importWork, MissingAcceptanceCriteriaError, OrphanTaskError } from "../src/import/work.js";
+import { importWork } from "../src/import/work.js";
+import { MissingAcceptanceCriteriaError, OrphanTaskError } from "../src/work/lifecycle.js";
 import { freshDb, seededDb } from "./helpers.js";
 
 test("importAll loads the seed dataset: Task → Capability → Component → Repository", async () => {

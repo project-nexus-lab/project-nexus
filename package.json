@@ -11,6 +11,7 @@
     "migrate": "npm run migrate --workspace=apps/backend --",
     "import": "npm run import --workspace=apps/backend --",
     "verify": "npm run verify --workspace=apps/backend",
+    "serve": "npm run serve --workspace=apps/backend --",
     "test": "npm run test --workspace=apps/backend",
     "typecheck": "npm run typecheck --workspace=apps/backend"
   }

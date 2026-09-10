@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   assertId,
   assertPrefixMatchesKind,
+  GENERATED_PATTERN,
+  generateUlid,
   InvalidIdError,
   isValidArchitectureElementId,
   isValidId,
@@ -66,4 +68,16 @@ test("work item IDs share one pattern across the four kinds", () => {
 test("assertPrefixMatchesKind catches an id/kind mismatch at the import boundary", () => {
   assert.throws(() => assertPrefixMatchesKind("cap.foo", "component"));
   assert.doesNotThrow(() => assertPrefixMatchesKind("comp.foo", "component"));
+});
+
+test("generateUlid produces a 26-char Crockford-base32 string matching the change-proposal id pattern", () => {
+  const ulid = generateUlid();
+  assert.equal(ulid.length, 26);
+  assert.match(`acp.${ulid}`, GENERATED_PATTERN.changeProposal);
+  assert.match(`run.${ulid}`, GENERATED_PATTERN.executionRun);
+});
+
+test("generateUlid does not repeat across many calls", () => {
+  const seen = new Set(Array.from({ length: 1000 }, () => generateUlid()));
+  assert.equal(seen.size, 1000);
 });

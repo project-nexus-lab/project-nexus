@@ -3,11 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Nexus Core — Iteration 0: schema, ID validation, YAML import, graph traversals, Work Package generation",
+  "description": "Nexus Core — schema, ID validation, YAML import, graph traversals, Work Package generation, and the Architecture Change Proposal lifecycle",
   "scripts": {
     "migrate": "tsx src/cli/migrate.ts",
     "import": "tsx src/cli/import.ts",
     "verify": "tsx src/cli/verify.ts",
+    "serve": "tsx src/cli/serve.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

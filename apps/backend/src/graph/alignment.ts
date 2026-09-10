@@ -28,3 +28,24 @@ export async function unprovidedCapabilities(
   );
   return rows;
 }
+
+export interface LiveReferenceRow {
+  reference_kind: "task" | "repository";
+  reference_id: string;
+}
+
+/**
+ * liveReferences(element): non-terminal Tasks affecting it, and active
+ * Repositories implementing it (§5.6). The one place the Architecture
+ * Change Proposal's retirement check (§5.6) is allowed to ask this — see
+ * the migration this wraps for why it lives in Alignment, not Architecture.
+ */
+export async function liveReferences(
+  db: SqlExecutor,
+  elementId: string,
+): Promise<LiveReferenceRow[]> {
+  const { rows } = await db.query<LiveReferenceRow>(`select * from alignment.live_references($1)`, [
+    elementId,
+  ]);
+  return rows;
+}

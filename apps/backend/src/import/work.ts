@@ -1,33 +1,20 @@
 import type { SqlExecutor } from "../db/sql-executor.js";
 import { assertPrefixMatchesKind } from "../ids/ids.js";
+import { assertReadyInvariants } from "../work/lifecycle.js";
 import { WorkYaml } from "./schema.js";
 
-export class OrphanTaskError extends Error {
-  constructor(taskId: string) {
-    super(
-      `task ${taskId} may not leave 'draft' with zero Capability links (§3.5 no-orphan-task invariant)`,
-    );
-    this.name = "OrphanTaskError";
-  }
-}
-
-export class MissingAcceptanceCriteriaError extends Error {
-  constructor(taskId: string) {
-    super(
-      `task ${taskId} may not leave 'draft' with zero AcceptanceCriteria (§3.5)`,
-    );
-    this.name = "MissingAcceptanceCriteriaError";
-  }
-}
+export { MissingAcceptanceCriteriaError, OrphanTaskError } from "../work/lifecycle.js";
 
 /**
  * Work YAML import (Iteration 0 deliverable #4).
  *
  * Enforces the WorkItem aggregate invariant (§3.5) at the same boundary a
  * future Work API would: a Task requesting any non-draft status must already
- * carry at least one `affects` link and one AcceptanceCriterion. The
- * composite FK (§7.4) and `orphanTasks()` (§8.5) back this up continuously;
- * this is the write-time check.
+ * carry at least one `affects` link and one AcceptanceCriterion — the same
+ * `assertReadyInvariants` the lifecycle API (Iteration 1) checks, run here
+ * against the rows just inserted rather than against the in-memory YAML.
+ * The composite FK (§7.4) and `orphanTasks()` (§8.5) back this up
+ * continuously; this is the write-time check.
  */
 export async function importWork(
   db: SqlExecutor,
@@ -61,11 +48,6 @@ export async function importWork(
   let affects = 0;
   for (const t of data.tasks) {
     assertPrefixMatchesKind(t.id, "task");
-
-    if (t.status !== "draft") {
-      if (t.affects.length === 0) throw new OrphanTaskError(t.id);
-      if (t.acceptanceCriteria.length === 0) throw new MissingAcceptanceCriteriaError(t.id);
-    }
 
     // Insert as draft first: legal FK targets (capabilities, repositories) may
     // reference rows created moments ago in this same import, but the status
@@ -102,6 +84,7 @@ export async function importWork(
     }
 
     if (t.status !== "draft") {
+      await assertReadyInvariants(db, t.id);
       await db.query(`update work.work_item set status = $2 where id = $1`, [t.id, t.status]);
     }
   }

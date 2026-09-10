@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 /**
  * Stable ID Strategy — MVP_ARCHITECTURE_V2 §6.
  *
@@ -99,6 +101,30 @@ export function isValidArchitectureElementId(id: string): boolean {
 
 export function isValidWorkItemId(id: string): boolean {
   return WORK_ITEM_ID.test(id);
+}
+
+const CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // excludes I L O U, per ULID spec
+
+/**
+ * Generates a 26-character Crockford-base32 string matching `GENERATED_PATTERN`
+ * (`acp.<ulid>`, `run.<ulid>`). 128 bits of randomness — enough for
+ * uniqueness, which is the only property anything in the schema or the
+ * traversal layer depends on. True ULID monotonic sortability (a
+ * timestamp-prefixed encoding) is not a stated requirement anywhere in
+ * MVP_ARCHITECTURE_V2 — only the id *shape* is — so this stays a single
+ * self-contained function rather than pulling in a ULID library for a
+ * property nothing here uses.
+ */
+export function generateUlid(): string {
+  const bytes = randomBytes(16); // 128 bits
+  let bits = "";
+  for (const byte of bytes) bits += byte.toString(2).padStart(8, "0");
+  let out = "";
+  for (let i = 0; i < 26; i++) {
+    const chunk = bits.slice(i * 5, i * 5 + 5).padEnd(5, "0");
+    out += CROCKFORD_BASE32[parseInt(chunk, 2)];
+  }
+  return out;
 }
 
 /** The prefix a given architecture element kind must carry. */

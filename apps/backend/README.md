@@ -1,9 +1,10 @@
-# Nexus Core — Iteration 0
+# Nexus Core
 
-The smallest executable Nexus Core: enough to validate the domain model and
-architectural assumptions in `docs/MVP_ARCHITECTURE_V2.md`. Not a platform —
-a walking skeleton of its data model and its two hardest guarantees
-(deterministic retrieval, deterministic Work Package generation).
+The smallest executable Nexus Core, grown iteration by iteration to
+validate the domain model and architectural assumptions in
+`docs/MVP_ARCHITECTURE_V2.md`. Not a platform — a walking skeleton, with
+each iteration adding one more load-bearing guarantee and proving it
+against real evidence rather than asserting it.
 
 This is the backend application (`apps/backend`) inside the Project Nexus
 monorepo — the one deployable backend, per the top-level `README.md`. Paths
@@ -11,7 +12,17 @@ below (`db/`, `seed/`, `src/`, `test/`) are relative to this directory.
 `docs/` is at the repository root, one level up, and applies to the whole
 monorepo, not just this app.
 
+This document describes what exists **today**, cumulatively. For what each
+iteration added and why, see `docs/history/iteration-N/REPORT.md`; for what
+each iteration proved, disproved, or left open, see
+`docs/history/iteration-N/LESSONS.md` and the distilled
+`docs/PROJECT_KNOWLEDGE.md`.
+
 ## 1. Implementation plan (what was built, and why)
+
+*(§1–§9 below describe Iteration 0: schema, import, traversals, Work
+Package generation. Iteration 1 — the Architecture Change Proposal
+lifecycle and a minimal REST layer — is §10.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -51,18 +62,27 @@ src/
   import/           YAML → validated rows → Postgres, one file per bounded
                     context, in the dependency order the model requires.
   graph/            TypeScript wrappers over the named traversals (§8.4) and
-                    the two Alignment queries in scope (§8.5).
+                    the Alignment queries in scope (§8.5), including
+                    liveReferences — Iteration 1, see §10.4.
   workpackage/       buildWorkPackage(taskId, profileId) (§11) — canonical
                     serialisation, content hashing, insert-only persistence.
-  cli/              Three scripts: migrate, import, verify.
-test/               node:test suite — the executable proof for §7 below.
+  proposal/          Iteration 1: the Architecture Change Proposal lifecycle
+                    (§5) — draft, submit, approve, reject, apply.
+  work/              Iteration 1: WorkItem lifecycle (§3.5, §5.4) — link a
+                    capability, mark ready, block/release on a proposal.
+  http/              Iteration 1: a minimal REST layer over the above —
+                    a hand-rolled router, no framework dependency.
+  cli/              Four scripts: migrate, import, verify, serve.
+test/               node:test suite — the executable proof for §7/§10 below.
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
 (`../../docs` from here), not inside this app — it governs
 `apps/frontend` and `packages/*` too, not just the backend.
 
-No `src/api`, no `src/mcp`, no `src/orchestrator` — those are 1a/1e/1f.
+No `src/mcp`, no `src/orchestrator`, no runtime adapter — those are 1e/1f.
+`src/http` is a thin enabling layer for the proposal lifecycle (§10.5), not
+the full §16 1a REST surface.
 
 ## 3. Technology stack
 
@@ -189,7 +209,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 44 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 77 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -266,3 +286,78 @@ deferring:
   document; this implementation ships Alternative A (curated
   `file_anchor` rows) because that's what v2 says the MVP proceeds with,
   not because the question is settled.
+
+## 10. Iteration 1: the Architecture Change Proposal lifecycle
+
+Full detail in `docs/history/iteration-1/REPORT.md` and `LESSONS.md`. This
+section is the current, cumulative summary.
+
+### 10.1 What this validates
+
+`docs/PROJECT_KNOWLEDGE.md`'s highest-ranked Open Question: does §5's
+proposal lifecycle actually close the loop it exists to close — a Task
+blocked on missing architecture reaching `ready` again without a manual
+database edit? `test/proposal.test.ts`'s end-to-end test proves it does,
+against the exact scenario §5.1 describes (a gate failure from
+`buildWorkPackage`, not a synthetic one).
+
+### 10.2 `src/proposal/proposal.ts`
+
+`draftProposal`, `submitProposal`, `approveProposal`, `rejectProposal`,
+`applyProposal` — the full `draft → proposed → approved → applied |
+rejected` state machine (§5.2). `applyProposal` mints, retires, and writes
+succession in one transaction (§3.2, §5.4); PGlite's rollback-on-throw
+behaviour is verified directly (not assumed) before being relied on — see
+`docs/history/iteration-1/LESSONS.md`.
+
+`move`, `split`, and `merge` are out of scope, exactly as §5.3 already
+scopes them to iteration 2 — validating the proposal *model* needs only
+`create` and `retire`, which is all the schema has ever allowed.
+
+### 10.3 `src/work/lifecycle.ts`
+
+The rest of the WorkItem lifecycle §5.4 needs: `blockTask` (Task →
+`blocked`, naming the proposal — standing in for what an Orchestrator would
+trigger automatically on `RunBlocked`, §12.2, deferred to 1f),
+`releaseBlockedTasks` (the `ProposalApplied → Work` handler, §2.2),
+`linkCapability` and `markReady` ("Task links the new capability, returns
+to ready"). `assertReadyInvariants` (§3.5) is extracted here and now shared
+by both this lifecycle API and the Iteration 0 YAML import guard — one
+invariant, one place, two callers.
+
+### 10.4 A boundary violation this iteration created, then caught and fixed
+
+`applyProposal`'s retirement check (§5.6) needs to know about non-terminal
+Tasks and active Repositories. The first implementation queried
+`work.work_item_capability` and `repo.repository_component` directly from
+`src/proposal/proposal.ts` — Architecture-context code reading Work and
+Repository tables. §2.3's declared dependency table gives Architecture no
+read dependency on either (only the reverse: Work → Architecture,
+Repository → Architecture). Moved to `alignment.live_references()`
+(`db/migrations/0009_alignment_live_references.sql`,
+`src/graph/alignment.ts#liveReferences`) — Alignment is the one context
+declared read-only across all others (§2.1) for exactly this kind of
+cross-context check. `applyProposal` now asks Alignment, not Work or
+Repository directly. See `docs/history/iteration-1/LESSONS.md` for why this
+counts as a real Domain Integrity finding rather than a style preference.
+
+### 10.5 `src/http` — an enabling layer, not §16's full 1a
+
+A hand-rolled router (`src/http/router.ts`, no framework dependency) wires
+a dozen thin routes over the functions above: Work Package generation,
+the proposal lifecycle, and Task block/link/ready. `npm run serve` starts
+it. Every error class already defined in `src/proposal` and `src/work` is
+mapped to an HTTP status once, centrally
+(`src/http/errors.ts#statusForError`) — route handlers never choose a
+status code themselves.
+
+```
+npm run serve -- .nexus-data/db   # from the repository root; PORT env var, default 3000
+```
+
+Deliberately not built: authentication (excluded platform-wide since
+Iteration 0, not newly deferred here — see the Constitution Reviewer note
+in `docs/history/iteration-1/REPORT.md` about what this means for R-1
+today), an AcceptanceCriterion-authoring endpoint, and the rest of §16 1a's
+surface (`resolve`, `governanceOf` as HTTP, pagination). Each is additive
+over what exists, not a redesign of it.
