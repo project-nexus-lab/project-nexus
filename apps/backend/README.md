@@ -26,7 +26,11 @@ lifecycle and a minimal REST layer — is §10. Iteration 2 — runtime
 independence under a second adapter — is §11. Iteration 3 — MCP grant
 enforcement — is §12. Iteration 4 — repository bootstrap — is §13.
 Iteration 5 — a real GitHub-backed VcsProvider — is §14. Iteration 6 — a
-real Claude SDK Adapter — is §15.)*
+real Claude SDK Adapter — is §15. Iteration 7 — does the MCP grant model
+bound what an agent can learn — is §16. The Execution telemetry section
+after §16 is a focused enhancement done chronologically between
+Iterations 6 and 7, not an iteration itself — see its own note on why it
+appears where it does.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -85,18 +89,20 @@ src/
                     @anthropic-ai/claude-agent-sdk — see §15 below.
   mcp/               Iteration 3: MCP grant construction and enforcement
                     (§9.5) over two grant-checked tool wrappers — see §12
-                    below.
+                    below. Iteration 7: getAncestry's result is now
+                    filtered against the grant — see §16 below.
   repository/        Iteration 4: the repository bootstrap state machine
                     (§10.1), a VcsProvider port + no-op implementation,
                     and the managed-region generation/drift mechanism
                     (§10.4) — see §13 below. Iteration 5:
                     gh-cli-vcs-provider.ts, a real GitHub-backed
                     VcsProvider — see §14 below.
-  cli/              Six scripts: migrate, import, verify, serve,
+  cli/              Seven scripts: migrate, import, verify, serve,
                     verify-github (Iteration 5), verify-claude-adapter
-                    (Iteration 6) — neither verify-* script is part of
-                    npm test.
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15 below,
+                    (Iteration 6), investigate-ancestry-disclosure
+                    (Iteration 7) — none of the verify-*/investigate-*
+                    scripts are part of npm test.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16 below,
                     plus execution-telemetry.test.ts (see "Execution telemetry" below).
 ```
 
@@ -244,7 +250,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 130 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 133 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -709,10 +715,73 @@ Architecture MCP tools and all of Work/Repository MCP; the output path
 (§12.5 — branch push and PR); any role other than `role.implementer`;
 adapter-selection or multi-adapter dispatch logic.
 
+## 16. Iteration 7: does the MCP grant model bound what an agent can learn?
+
+Full detail in `docs/history/iteration-7/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`.
+
+### 16.1 What this validates
+
+At the start of this iteration, `docs/PROJECT_KNOWLEDGE.md`'s oldest open
+item, open since Iteration 3: does §9.5's "bounds agent blast radius
+provably" claim hold for what an agent can *learn* through an in-grant
+call's own result, not only for what it can directly query? (Now
+resolved and removed from that document's Open Questions — check it
+directly for the current list, not this sentence.) Iteration 3 left
+`getAncestry`'s result unfiltered as a disclosed, deliberate reading of
+§9.5 — this iteration tested that reading against a real agent for the
+first time (only possible once Iteration 6's real adapter existed) and
+found it did not hold: one real, non-adversarial run disclosed an
+out-of-grant product codename unprompted. See
+`docs/history/iteration-7/REPORT.md` § "The first live run, in full."
+
+### 16.2 `src/mcp/tools.ts#redactOutOfGrantAncestor`
+
+`getAncestry`'s result is now filtered: any ancestor row whose `id` is
+not itself in `grant.allowedElementIds` has its `id` and `name` replaced
+with a depth-scoped placeholder (`[redacted:depth=N]`, `"[redacted]"`),
+while `kind` and `depth` are preserved. The grant-agnostic traversal
+layer (`src/graph/traversals.ts#ancestry`, used elsewhere by e.g.
+`governanceOf`) is untouched — the filtering lives entirely in the MCP
+tool wrapper, the same layer that already does the call-target grant
+check. Confirmed against the identical real scenario, re-run after the
+fix: the same real agent reached the same correct structural conclusion
+using only `kind`/`depth`, and no longer disclosed any redacted
+identity.
+
+### 16.3 `src/cli/investigate-ancestry-disclosure.ts` — not part of `npm test`
+
+Deliberately not named `verify-*`: its Phase A outcome was not known in
+advance.
+
+```
+npm run investigate:grant-disclosure   # requires an authenticated claude CLI
+```
+
+Seeds a real architecture where an in-grant leaf's containment chain
+passes through three out-of-grant ancestors (the outermost a realistic
+unannounced-initiative-shaped product codename), then drives one real
+`ClaudeSdkAdapter` run with a task that never mentions ancestry,
+architecture, or product context — only a genuine, ordinary
+pre-implementation structural check. Classifies the result against the
+protocol-level `toolCalls`/`toolResults` record, not the agent's prose.
+
+### 16.4 Deliberately not built
+
+A general-purpose grant-result-filtering framework applying uniformly to
+every MCP tool (only `getAncestry` has been shown to carry this risk —
+see `docs/PROJECT_KNOWLEDGE.md` Unproven); the adversarial-prompting
+scenario named in `SCOPE.md` §5.B; any change to `assertInGrant` or the
+grant-widening formula, both already validated and untouched.
+
 ## Execution telemetry
 
-**Not an iteration.** A focused enhancement, done after Iteration 6, to
-close a specific gap: real agent runs were producing real evidence
+**Not an iteration**, and — despite appearing after Iteration 7 in this
+document's section order — done chronologically between Iterations 6
+and 7, not after both; this section stays here rather than being
+inserted mid-document so Iteration 7's own numbered §16 subsections
+read as one continuous unit. A focused enhancement to close a specific
+gap: real agent runs were producing real evidence
 (token counts, durations, what was actually retrieved) with nowhere to
 record it, and `execution.execution_run`'s own `started_at`/`ended_at`
 columns had sat unwritten since Iteration 0. The goal is evidence

@@ -35,7 +35,7 @@ CLAUDE.md      Operating instructions for work in this repository —
 
 ```
 npm install
-npm test              # runs apps/backend's test suite (130 node:test cases)
+npm test              # runs apps/backend's test suite (133 node:test cases)
 npm run verify         # narrated walkthrough of the same guarantees
 ```
 

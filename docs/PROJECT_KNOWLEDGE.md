@@ -61,6 +61,8 @@ Demonstrated correct by direct implementation evidence.
 | A grant-checked MCP tool, exposed through a real MCP server, is genuinely enforced against a real agent's real protocol calls — both a success and a refusal | Iteration 6 | A live run's `getAncestry` call on an in-grant element succeeded with real data checked at the protocol level (`toolResults`, not the agent's prose); a separate `getCapabilitiesOf` call on a deliberately out-of-grant element was refused the same way, verified against the real `GrantRefusedError` message text. **Validated for an in-process MCP server — see Unproven for whether a standalone, externally-reachable server is equivalent evidence.** |
 | Reusing an already-authenticated local credential instead of requiring new credential setup, validated for a CLI wrapper in Iteration 5, generalizes to a process-spawning SDK | Iteration 6 | No `ANTHROPIC_API_KEY` was set in this environment; a probe script confirmed `@anthropic-ai/claude-agent-sdk`'s `query()` authenticates successfully on the first call using whatever this environment's `claude` CLI already has, checked before any adapter code was written. |
 | A real agent run can leave behind evidence of its own execution — duration, real token counts, Work Package and grant sizes, retrieval counts — without requiring cost calculation, analytics, or a real Orchestrator to exist first | Focused enhancement after Iteration 6 (not an iteration) | One real `ClaudeSdkAdapter` run produced a real `execution.run_telemetry` row: `duration_ms` and `work_package_size_bytes` positive and real, `input_tokens`/`output_tokens`/`total_tokens` from the SDK's own result message, grant and context counts matching the real grant and Work Package exactly, `accessed_element_count` correctly excluding the refused call. Fields genuinely unmeasurable today (`work_package_size_tokens` — no tokenizer exists; `accessed_repository_count` — no repository-scoped MCP tool exists) are explicitly `null`, checked directly against the recorded row, not asserted from the code alone. |
+| An in-grant `getAncestry` call can cause a real agent to disclose an out-of-grant ancestor's identity unprompted, as a side effect of ordinary, legitimate tool use — not only under adversarial prompting | Iteration 7 | One real run, task-scoped to a single in-grant component, with instructions that never mentioned ancestry, architecture, or the broader product: the agent called `getAncestry` unprompted for a legitimate reason and named the out-of-grant product ("Project Solstice," three containment levels above the grant) twice in its own final output. Checked at the protocol level, not inferred from prose. |
+| Redacting an out-of-grant ancestor's `id` and `name` while preserving `kind` and `depth` is sufficient for a legitimate in-grant caller's actual use of `getAncestry`'s result | Iteration 7 | The identical real scenario, re-run after `redactOutOfGrantAncestor` (`src/mcp/tools.ts`) was added: the same real agent reached the same correct structural conclusion using only `kind`/`depth`, and no longer disclosed any redacted identity. |
 
 ---
 
@@ -79,7 +81,7 @@ concrete experiment a future iteration can run directly.
 | R-1's write-authorization boundary ("the runtime never holds a write credential") holds against a real caller, not just in the data model | Iteration 1 | The state machine enforces R-1's substance (agent-authored proposals are always `draft`; only a human principal can approve), but nothing yet distinguishes "the platform, acting on a genuine `RunBlocked` event" from "any HTTP caller" — Authentication remains out of scope. Not new, but newly testable now that a real HTTP surface exists. | Not this platform's evidence to gather until Authentication is in scope — revisit then rather than assuming the state machine alone was always sufficient. |
 | The six-event `RunEvent` vocabulary (§12.2) is sufficient for a real adapter's full translation surface, not only the three kinds (`RunStarted`, `ContextRequested`, `RunCompleted`/`RunFailed`) exercised so far | Iteration 2, narrowed Iteration 6 | Iteration 6's real adapter never needed `ArtifactProduced` (no real output path exists yet) or `RunBlocked` (no mechanism gives a real agent a way to signal it); most of what the real SDK actually emits has no `RunEvent` counterpart at all and is silently absorbed, untested against a scope that needs a seventh kind of information to cross the boundary. | Build a scope that actually needs `ArtifactProduced` (the deferred push/PR path) or a real `RunBlocked` signal, and see whether the six kinds still suffice. |
 | An in-process MCP server (`createSdkMcpServer`, hosted within the same process) is equivalent evidence to a standalone, externally-reachable MCP server (§9.2–9.4) for "a real adapter can drive genuine MCP protocol calls" | Iteration 6 | Iteration 6's MCP exchange is real (real request/response framing, real tool schemas, a real `isError` path) but never crossed a process boundary — no separate MCP client/server network exchange was exercised. | Build the standalone MCP server §16 1e describes, point a real adapter's `mcpServers` config at it as an external process, and re-run the same in-grant/out-of-grant check against that boundary. |
-| The grant model bounds what an agent can *learn*, not only what it can *directly query* | Iteration 3 | `getAncestry`'s grant check applies to its target id only; the returned ancestry chain is not filtered against `allowedElementIds`, so an in-grant call can surface the id, kind, and name of an out-of-grant ancestor (e.g. the containment root). A disclosed, deliberate reading of an ambiguous line in §9.5, not a bug — but it makes the *provable* blast-radius bound narrower than "the agent cannot learn X exists." | Build a scenario where this distinction actually matters to a real or realistic agent's behavior before deciding whether result-filtering is worth the cost to the traversal layer's simplicity — evidence before redesign, not by default. |
+| Every current and future MCP tool that returns graph-derived structure needs the same category of grant-result filtering `getAncestry` now has | Iteration 7 | Only one tool (`getAncestry`) has been shown to carry this risk. `getCapabilitiesOf`, this project's only other MCP tool, has no equivalent "walks past something outside the grant" shape to redact. Whether a future tool (e.g. `architecture.get_dependencies`, §9.2, still deferred) would need the same treatment is unknown until it exists and is tested the same real-agent way. | When a future MCP tool's result could plausibly traverse past a grant boundary, test it the same way Iteration 7 tested `getAncestry`: a real, narrowly-scoped, non-adversarial agent run, before assuming filtering is or is not needed. |
 | A real adapter can actually use a grant to drive genuine (non-simulated) MCP protocol calls | Iteration 3 | Grant construction and enforcement are validated against direct function calls and HTTP requests written for this iteration's own tests — never against a real MCP client/server exchange, because no real MCP protocol server exists (deliberately deferred, see `docs/history/iteration-3/REPORT.md`). | Build the real MCP protocol layer (§16 1e) and the Claude SDK Adapter (§12.7) together, and check whether the grant as currently shaped is sufficient for an actual tool-call round trip. |
 | Repository visibility (and by extension other per-repository provisioning choices — organization, license, gitignore template) belongs on the `VcsProvider` port's per-call input, not adapter-level configuration | Iteration 5 | `GhCliVcsProvider` took visibility as a constructor parameter, fixed once per provider instance, specifically to keep the port's type unchanged — untested against a run that needs two different visibilities through one process. | Attempt to provision two repositories with different visibility in the same run; see whether adapter-level configuration holds up or the decision needs to move onto the port's input. |
 | The bootstrap mechanism's success provisioning a real repository predicts success for the rest of §10.2's flow — pushing `generateProjection`'s output, creating a branch, opening a PR | Iteration 5 | Explicitly out of scope this iteration (`docs/history/iteration-5/SCOPE.md` §4); provisioning (`gh repo create`, GitHub's REST API) and pushing content (`git` operations) are different operations against different parts of GitHub's surface, with their own untested failure modes. | Write `generateProjection`'s managed-region files to disk, commit, push a branch, and (if going as far as §10.2 step 5) open a PR against a real repository; check whether that succeeds the way provisioning did. |
@@ -103,6 +105,7 @@ from the architecture documents alone is not reliable.
 | `gh repo create` supports a `--json` flag for structured output, the same way `gh repo view` does | Iteration 5 | Checked directly against `gh repo create --help` before writing any adapter code: no such flag exists for this subcommand. It prints a bare repository URL to stdout on success and nothing structured. | `extractOwnerRepo()` parses `owner/name` out of the URL with a regular expression; error classification (`mapGhError`) is necessarily stderr-text-pattern-based for the same reason. |
 | Existing `gh` credentials are sufficient for the whole exercise — creation and cleanup both | Iteration 5 | Creation succeeded with the token's `repo` scope. Deletion failed: GitHub requires the separate `delete_repo` scope, which the authenticated token does not have. "Is the runtime authenticated" and "is the runtime authorized for this specific operation" are different questions. | `verify-github.ts` treats deletion failure as an expected, handled outcome, printing the manual cleanup command rather than crashing; deletion was never added to the `VcsProvider` port itself. |
 | A Work Package built from just `task`/`capabilities`/`components` gives a real adapter enough to direct a specific run — implicit while writing the first version of Iteration 6's verification script, never stated as a hypothesis because it seemed too obvious to name | Iteration 6 | Two live runs showed a real agent calling the wrong component id. The cause was not the agent: `ClaudeSdkAdapter.start()`'s only inputs are `runId`/`workPackage`/`grant`, and the run-specific instructions were never passed through any of them — only console-logged. Given generic context alone, the agent reasonably inferred a target from what the Work Package *did* declare. | `buildPrompt()` now reads and includes `workPackage.acceptanceCriteria` — a real, pre-existing `WorkPackagePayload` field — verbatim; `verify-claude-adapter.ts` passes its instructions through it instead of an unused local variable. After the fix, the agent followed the exact instructions on the next two attempts. |
+| §9.5 authorizes the *call*, not the result — leaving `getAncestry`'s result unfiltered was a defensible, low-risk interpretation that could reasonably be left as documented risk (Iteration 3's own reading) | Iteration 7 | The very first real, non-adversarial attempt to test this found a real leak — not a contrived edge case, an entirely ordinary task ("confirm this component's structural placement") was sufficient to trigger it on the first try, because `getAncestry` is exactly the kind of tool a legitimate task reaches for. The risk was not theoretical or requiring unlikely conditions; it was the default outcome of the agent doing its job as instructed. | `getAncestry`'s result is now filtered (`redactOutOfGrantAncestor`, `src/mcp/tools.ts`). A disclosed risk carried as Unproven is a flag to test with real evidence as soon as the tooling exists (Iteration 6's real adapter), not a permanent resting place for the concern. |
 
 ---
 
@@ -112,28 +115,21 @@ Important unresolved issues, in priority order. These are broader than any
 single row above — several draw together multiple Unproven entries into
 one architectural bet.
 
-1. **Does the MCP grant model bound what an agent can *learn*, not only
-   what it can *directly query*?** Iteration 3 validated call-target
-   enforcement (see Validated, above); a call result can still surface the
-   existence and basic metadata of an element outside the grant when that
-   element sits on a legitimately-reachable traversal path (e.g. a
-   containment root). Narrower than "resolved," not the same as "open" —
-   see Unproven, above, for exactly what remains.
-2. **Does runtime independence hold for a *real* second adapter, not just
+1. **Does runtime independence hold for a *real* second adapter, not just
    two deliberately trivial ones?** Resolved favorably as of Iteration 6
    for the translation surface actually exercised — a real
    `ClaudeSdkAdapter` (§12.7) required zero changes to the port or
    registry (see Validated, above). Narrowed, not fully closed: whether
    the six-event vocabulary holds once a scope needs `ArtifactProduced` or
    a real `RunBlocked` signal remains open — see Unproven, above.
-3. **Should Nexus hold file-level knowledge at all?** §13 of
+2. **Should Nexus hold file-level knowledge at all?** §13 of
    `MVP_ARCHITECTURE_V2.md` is explicitly unresolved in the source
    document itself; Iteration 0 shipped Alternative A (curated
    FileAnchors) by default, not by evidence.
-4. **Do the graph traversals hold up past toy scale?** Every traversal is
+3. **Do the graph traversals hold up past toy scale?** Every traversal is
    correctness-proven; none has been measured against a graph resembling a
    real organization's architecture.
-5. **Does every mechanism validated against a no-op/fake stand-in
+4. **Does every mechanism validated against a no-op/fake stand-in
    (`AgentRuntimeAdapter`, the MCP protocol boundary, `VcsProvider`) hold
    once the real thing behind it exists?** All three tracked instances now
    resolved favorably for the scope each iteration actually tested:
@@ -153,10 +149,9 @@ Resolved as of Iteration 2 for the trivial case, narrowed rather than
 removed: *does runtime independence hold under an actual second adapter?*
 — replaced above by the real-adapter question that remains.
 
-Resolved as of Iteration 3 for direct call-target enforcement, narrowed
-rather than removed: *is the MCP grant model a real enforcement boundary,
-or only a documented convention?* — replaced above by the narrower
-information-exposure question that remains.
+Resolved as of Iteration 3 for direct call-target enforcement: *is the
+MCP grant model a real enforcement boundary, or only a documented
+convention?* — see Validated, above.
 
 Resolved as of Iteration 5 for the `VcsProvider` port and bootstrap state
 machine specifically: *does the repository bootstrap mechanism hold once a
@@ -170,6 +165,15 @@ Resolved as of Iteration 6 for the translation surface actually exercised:
 Validated, above. Two narrower questions survive in its place (six-event
 vocabulary sufficiency for `ArtifactProduced`/`RunBlocked`; in-process vs.
 standalone MCP server equivalence) — see Unproven, above.
+
+Resolved as of Iteration 7, removed from this list: *does the MCP grant
+model bound what an agent can learn, not only what it can directly
+query?* — the narrower information-exposure question Iteration 3 left
+open. Tested against a real agent for the first time, found to leak
+(Validated/Invalidated, above), and fixed (`getAncestry`'s result is now
+redacted for out-of-grant ancestors). A narrower question survives in its
+place — whether the same category of risk applies to any other MCP tool
+— see Unproven, above.
 
 A note on numbering, added after this document's own numbered rankings
 were twice quoted stale in other files' prose (`docs/history/iteration-2/`
