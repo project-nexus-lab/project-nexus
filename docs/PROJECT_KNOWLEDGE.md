@@ -54,6 +54,9 @@ Demonstrated correct by direct implementation evidence.
 | The managed-region mechanism (§10.4) genuinely distinguishes a human edit outside the markers (no false drift) from one inside (drift correctly detected) | Iteration 4 | §16's own literal acceptance bar for this work, reproduced directly: prepend/append text outside the markers → no drift, unchanged hash; mutate a value inside the markers → drift, changed hash; markers deleted entirely → drift, not a crash. |
 | `render()` (§10.4) is genuinely a pure function of graph state — identical inputs produce byte-identical output | Iteration 4 | Regenerating a repository's projection and comparing every file against itself via `checkDrift` finds zero drift, achieved by sorting inputs inside `render()` rather than trusting caller order — the same discipline `buildWorkPackage`'s canonical payload already required in Iteration 0. |
 | The repository bootstrap state machine (§10.1) enforces its own transition order as a real invariant, not just a `bootstrap_state` column nobody checks | Iteration 4 | Every one of the five transitions tested both legally and illegally from a non-immediate-predecessor state; `registerMapping` confirmed legal a second time once already `mapped` ("at least one," not "exactly one," per §3.6). Third independent implementation of the same typed-state-machine pattern already used for `ArchitectureChangeProposal` and `WorkItem`. |
+| The `VcsProvider` port's type signature, and the bootstrap state machine built against it, require no changes to accommodate a real GitHub-backed implementation | Iteration 5 | A real, private GitHub repository was provisioned via `GhCliVcsProvider`, independently confirmed with a separate `gh repo view` call, then driven unmodified through `registerMapping → generateProjection → activateRepository` to `active`. Zero lines of `src/repository/lifecycle.ts` changed. **One real design choice was needed to keep the port's type unchanged (visibility moved to adapter configuration, not the port's input) — see Unproven.** |
+| `provisionRepository`'s call-then-write sequence is safe under a real provider failure — the repository is left cleanly at `declared`, not in an inconsistent state | Iteration 5 | A genuine GitHub API failure (a real name collision, not simulated) left `bootstrap_state` at `declared`, checked directly against the database; a retry against the same repository was then confirmed legal. Closes the exact gap Iteration 4 named as its own top Unproven item. |
+| Keeping Nexus's minted `id` separate from a provider's own reference (`provider_ref`) — two columns since Iteration 0 — was necessary, not merely cautious | Iteration 5 | The real repository's Nexus id and its GitHub name differed in every character but a shared timestamp suffix; GitHub raised no objection to either independently, and nothing in this iteration would have worked had the two been forced to be the same string. |
 
 ---
 
@@ -73,7 +76,8 @@ concrete experiment a future iteration can run directly.
 | The near-zero marginal cost of a second adapter (validated, above) holds for a *real* adapter — one expressing actual behavioral differences (streaming, tool-call translation, vendor config) through the port, not a canned event sequence | Iteration 2 | Both adapters built so far are deliberately trivial; neither exercised anything the port might need to grow to support (structured tool calls, streaming delivery, per-vendor configuration surfaced through `capabilities()`). | Build the Claude SDK Adapter (§12.7), the first real adapter, and re-run the same three checks (structural, comparative, no-second-pass on the port/registry) against it. |
 | The grant model bounds what an agent can *learn*, not only what it can *directly query* | Iteration 3 | `getAncestry`'s grant check applies to its target id only; the returned ancestry chain is not filtered against `allowedElementIds`, so an in-grant call can surface the id, kind, and name of an out-of-grant ancestor (e.g. the containment root). A disclosed, deliberate reading of an ambiguous line in §9.5, not a bug — but it makes the *provable* blast-radius bound narrower than "the agent cannot learn X exists." | Build a scenario where this distinction actually matters to a real or realistic agent's behavior before deciding whether result-filtering is worth the cost to the traversal layer's simplicity — evidence before redesign, not by default. |
 | A real adapter can actually use a grant to drive genuine (non-simulated) MCP protocol calls | Iteration 3 | Grant construction and enforcement are validated against direct function calls and HTTP requests written for this iteration's own tests — never against a real MCP client/server exchange, because no real MCP protocol server exists (deliberately deferred, see `docs/history/iteration-3/REPORT.md`). | Build the real MCP protocol layer (§16 1e) and the Claude SDK Adapter (§12.7) together, and check whether the grant as currently shaped is sufficient for an actual tool-call round trip. |
-| The repository bootstrap mechanism, validated against `NoopVcsProvider`, holds once a real `VcsProvider` (GitHub) exists | Iteration 4 | `NoopVcsProvider.create()` does no real work and cannot fail partway through a step the way a real GitHub API call could (rate limits, permission errors, name collisions, network failure). The state machine has never been driven against a provider capable of genuine mid-step failure. | Build a real GitHub `VcsProvider`; specifically check what happens when `provisionRepository` fails partway — does the repository stay cleanly in `declared`, or end up in a state nothing here ever produced because the no-op provider cannot fail. |
+| Repository visibility (and by extension other per-repository provisioning choices — organization, license, gitignore template) belongs on the `VcsProvider` port's per-call input, not adapter-level configuration | Iteration 5 | `GhCliVcsProvider` took visibility as a constructor parameter, fixed once per provider instance, specifically to keep the port's type unchanged — untested against a run that needs two different visibilities through one process. | Attempt to provision two repositories with different visibility in the same run; see whether adapter-level configuration holds up or the decision needs to move onto the port's input. |
+| The bootstrap mechanism's success provisioning a real repository predicts success for the rest of §10.2's flow — pushing `generateProjection`'s output, creating a branch, opening a PR | Iteration 5 | Explicitly out of scope this iteration (`docs/history/iteration-5/SCOPE.md` §4); provisioning (`gh repo create`, GitHub's REST API) and pushing content (`git` operations) are different operations against different parts of GitHub's surface, with their own untested failure modes. | Write `generateProjection`'s managed-region files to disk, commit, push a branch, and (if going as far as §10.2 step 5) open a PR against a real repository; check whether that succeeds the way provisioning did. |
 
 ---
 
@@ -90,6 +94,8 @@ from the architecture documents alone is not reliable.
 | The Work Package payload is canonicalized and hashed as one linear pipeline — build the full payload including its own generated `id`, then hash it | Iteration 0 | Self-contradictory: `id` is only known after deciding a new row is needed, which is exactly what the hash lookup decides. Hashing `id` in means every call mints a new id — idempotency becomes unreachable by construction, not just unlikely. | Hash the payload **without** `id`; attach `id` to the persisted payload only after the hash has determined whether a matching row already exists. |
 | `implementationPath` (§8.4) is a literal chain of INNER JOINs following the stated arrow-path | Iteration 0 | An affected capability with zero providers, or a component with zero mapped repositories, disappears from the result set entirely instead of surfacing — so the generation gate's own precondition checks (§11.2 step 1) become structurally unobservable. | Both joins are LEFT JOINs; a missing link surfaces as a row with a null column, which the gate explicitly checks for. |
 | Architecture-context code may read Work and Repository tables directly to evaluate §5.6's retirement policy, since the policy is stated as something the Architecture Change Proposal enforces | Iteration 1 | §2.3's declared dependency table lists no read dependency from Architecture to Work or Repository in either direction — only the reverse. The first implementation of `applyProposal`'s retirement check queried both directly, a real violation of a table this project treats as authoritative, not a hypothetical one. | Moved the check into `alignment.live_references()` — Alignment is declared read-only across every context (§2.1) specifically so a check like this does not have to be embedded in the context that would otherwise have to reach outside its own boundary to make it. |
+| `gh repo create` supports a `--json` flag for structured output, the same way `gh repo view` does | Iteration 5 | Checked directly against `gh repo create --help` before writing any adapter code: no such flag exists for this subcommand. It prints a bare repository URL to stdout on success and nothing structured. | `extractOwnerRepo()` parses `owner/name` out of the URL with a regular expression; error classification (`mapGhError`) is necessarily stderr-text-pattern-based for the same reason. |
+| Existing `gh` credentials are sufficient for the whole exercise — creation and cleanup both | Iteration 5 | Creation succeeded with the token's `repo` scope. Deletion failed: GitHub requires the separate `delete_repo` scope, which the authenticated token does not have. "Is the runtime authenticated" and "is the runtime authorized for this specific operation" are different questions. | `verify-github.ts` treats deletion failure as an expected, handled outcome, printing the manual cleanup command rather than crashing; deletion was never added to the `VcsProvider` port itself. |
 
 ---
 
@@ -119,15 +125,16 @@ one architectural bet.
    correctness-proven; none has been measured against a graph resembling a
    real organization's architecture.
 5. **Does every mechanism validated against a no-op/fake stand-in
-   (`AgentRuntimeAdapter`, the MCP protocol boundary, now `VcsProvider`)
-   hold once the real thing behind it exists?** Not one question but a
-   recurring shape of one, appearing a third time as of Iteration 4 (see
-   `docs/history/iteration-4/LESSONS.md`, "Final Verdict"). Recorded here
-   as its own entry because the *pattern* is now itself worth watching —
-   every "real X" question so far has been answered by building that one
-   real X, not by this document's own analysis predicting the answer —
-   which is a datum about how this project actually resolves uncertainty,
-   not only about any one port.
+   (`AgentRuntimeAdapter`, the MCP protocol boundary, `VcsProvider`) hold
+   once the real thing behind it exists?** Not one question but a
+   recurring shape of one. Answered a second time, cleanly, as of
+   Iteration 5 for `VcsProvider` specifically — the port and bootstrap
+   state machine survived contact with real GitHub unmodified (see
+   Validated, above). The *pattern itself* stays open as its own entry:
+   two of three tracked instances (`VcsProvider`, and the MCP-grant
+   direct-call-target case in Iteration 3) have now resolved favorably;
+   the Claude SDK Adapter instance (Question 2, below) has not yet been
+   attempted at all.
 
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to
@@ -141,6 +148,13 @@ Resolved as of Iteration 3 for direct call-target enforcement, narrowed
 rather than removed: *is the MCP grant model a real enforcement boundary,
 or only a documented convention?* — replaced above by the narrower
 information-exposure question that remains.
+
+Resolved as of Iteration 5 for the `VcsProvider` port and bootstrap state
+machine specifically: *does the repository bootstrap mechanism hold once a
+real `VcsProvider` exists?* — see Validated, above. Two narrower questions
+survive in its place (visibility's place in the model; whether
+provisioning success predicts push/branch/PR success) — see Unproven,
+above.
 
 A note on numbering, added after this document's own numbered rankings
 were twice quoted stale in other files' prose (`docs/history/iteration-2/`

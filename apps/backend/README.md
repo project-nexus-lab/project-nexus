@@ -24,7 +24,8 @@ each iteration proved, disproved, or left open, see
 Package generation. Iteration 1 — the Architecture Change Proposal
 lifecycle and a minimal REST layer — is §10. Iteration 2 — runtime
 independence under a second adapter — is §11. Iteration 3 — MCP grant
-enforcement — is §12. Iteration 4 — repository bootstrap — is §13.)*
+enforcement — is §12. Iteration 4 — repository bootstrap — is §13.
+Iteration 5 — a real GitHub-backed VcsProvider — is §14.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -82,9 +83,12 @@ src/
   repository/        Iteration 4: the repository bootstrap state machine
                     (§10.1), a VcsProvider port + no-op implementation,
                     and the managed-region generation/drift mechanism
-                    (§10.4) — see §13 below.
-  cli/              Four scripts: migrate, import, verify, serve.
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13 below.
+                    (§10.4) — see §13 below. Iteration 5:
+                    gh-cli-vcs-provider.ts, a real GitHub-backed
+                    VcsProvider — see §14 below.
+  cli/              Five scripts: migrate, import, verify, serve,
+                    verify-github (Iteration 5, not part of npm test).
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14 below.
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
@@ -92,8 +96,10 @@ test/               node:test suite — the executable proof for §7/§10/§11/�
 `apps/frontend` and `packages/*` too, not just the backend.
 
 No `src/orchestrator`, no real MCP protocol server, no Claude SDK
-Adapter, no real `VcsProvider` (GitHub) — those remain deferred, each
-behind a port validated against a no-op stand-in first. `src/http` is a
+Adapter — those remain deferred, each behind a port validated against a
+no-op stand-in first. A real `VcsProvider` (GitHub) now exists (§14),
+provisioning only — pushing content, branches, and PRs remains deferred.
+`src/http` is a
 thin enabling layer (§10.5, §12.5), not the full §16 1a REST surface;
 `src/mcp` is grant enforcement only, not the three-server MCP surface
 §9.2–9.4 describe; `src/repository` is the bootstrap state machine and
@@ -225,7 +231,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 102 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 110 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -535,4 +541,77 @@ comparison (§10.5 — the rest reuses traversal/alignment functions that
 already exist and is cheap to wire up once needed); anchor verification,
 dependency-cycle enforcement, capability coverage by tests (§10.6, already
 deferred in the source document itself); real GitHub provisioning, branch
-creation, or PR opening.
+creation, or PR opening — the first of those three, real GitHub
+provisioning, is now done; see §14.
+
+## 14. Iteration 5: a real GitHub-backed VcsProvider
+
+Full detail in `docs/history/iteration-5/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`.
+
+### 14.1 What this validates
+
+The second of `docs/PROJECT_KNOWLEDGE.md`'s three tracked "does a
+mechanism validated against a no-op stand-in hold once the real thing
+exists" questions (Open Question 5 — check that document directly for its
+current ranking, not this sentence): does the `VcsProvider` port and the
+Iteration 4 bootstrap state machine hold once driven against real GitHub?
+Answered by provisioning a real, private repository, driving it
+unmodified through every remaining bootstrap step, and deliberately
+triggering a genuine API failure (a name collision) — not simulated. See
+`docs/history/iteration-5/REPORT.md` § "The live validation run, in full."
+
+### 14.2 `src/repository/gh-cli-vcs-provider.ts`
+
+`GhCliVcsProvider implements VcsProvider`, shelling out to `gh repo
+create` via `child_process.execFile` — no new npm dependency. `mapGhError`
+classifies failures (`not-installed`, `not-authenticated`, `name-taken`,
+`network`, `unknown`) from `gh`'s stderr text, since `gh repo create` has
+no `--json` flag (checked against `gh repo create --help` before writing
+any adapter code — `docs/history/iteration-5/SCOPE.md`'s own assumption
+otherwise was wrong). `extractOwnerRepo` parses `owner/name` out of the
+plain URL `gh repo create` prints on success.
+
+Repository visibility (`"private" | "public"`) is a constructor parameter
+on `GhCliVcsProvider`, not part of `create()`'s per-call input — the
+port's type is unchanged, but the decision moved to a place the port does
+not model. Disclosed as a real, undecided design choice, not a settled
+one — see `docs/PROJECT_KNOWLEDGE.md` Unproven.
+
+### 14.3 `src/cli/verify-github.ts` — not part of `npm test`
+
+Requires real `gh` authentication and real network access, so it is
+deliberately excluded from the hermetic `npm test` suite this project has
+kept offline since Iteration 0:
+
+```
+npm run verify:github   # from the repository root; requires gh auth login
+```
+
+It seeds a minimal architecture, drives `declareRepository →
+provisionRepository(GhCliVcsProvider) → registerMapping →
+generateProjection → activateRepository` against a real, uniquely-named,
+private repository, independently confirms the result with a separate
+`gh repo view` call, deliberately triggers a name collision to exercise
+the failure path, and attempts cleanup via `deleteRepository` — not part
+of the `VcsProvider` port itself, since §10.2 does not describe deletion
+as part of the bootstrap flow.
+
+### 14.4 A disclosed exception, not a silent gap
+
+Automated cleanup requires the `delete_repo` OAuth scope, distinct from
+the `repo` scope that repository creation needs; the credential used this
+iteration did not have it. `verify-github.ts` handles this as an expected,
+handled outcome — printing the manual cleanup command — rather than
+crashing or leaving an unexplained repository unexplained. See
+`docs/PROJECT_KNOWLEDGE.md` Invalidated for why "existing credentials are
+sufficient" was the wrong frame.
+
+### 14.5 Deliberately not built
+
+Pushing `generateProjection`'s output to the real repository, creating a
+real branch, or opening a real PR (§10.2 steps beyond provisioning) — a
+distinct, larger, undesigned claim, explicitly out of scope for this
+iteration. Multi-visibility provisioning through one running process. Any
+GitHub App, OAuth flow, or enterprise authentication work — not justified
+by any constitutional principle raised so far.
