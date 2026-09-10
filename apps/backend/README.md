@@ -72,17 +72,24 @@ src/
                     capability, mark ready, block/release on a proposal.
   http/              Iteration 1: a minimal REST layer over the above —
                     a hand-rolled router, no framework dependency.
+  runtime/           Iteration 2: the AgentRuntimeAdapter port (§12.2) and
+                    two deliberately trivial adapters — see §11 below.
+  mcp/               Iteration 3: MCP grant construction and enforcement
+                    (§9.5) over two grant-checked tool wrappers — see §12
+                    below.
   cli/              Four scripts: migrate, import, verify, serve.
-test/               node:test suite — the executable proof for §7/§10 below.
+test/               node:test suite — the executable proof for §7/§10/§11/§12 below.
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
 (`../../docs` from here), not inside this app — it governs
 `apps/frontend` and `packages/*` too, not just the backend.
 
-No `src/mcp`, no `src/orchestrator`, no runtime adapter — those are 1e/1f.
-`src/http` is a thin enabling layer for the proposal lifecycle (§10.5), not
-the full §16 1a REST surface.
+No `src/orchestrator`, no real MCP protocol server, no Claude SDK
+Adapter — those are 1f and the rest of 1e. `src/http` is a thin enabling
+layer (§10.5, §12.5), not the full §16 1a REST surface; `src/mcp` is
+grant enforcement only, not the three-server MCP surface §9.2–9.4
+describe.
 
 ## 3. Technology stack
 
@@ -209,7 +216,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 84 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 93 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -294,12 +301,15 @@ section is the current, cumulative summary.
 
 ### 10.1 What this validates
 
-`docs/PROJECT_KNOWLEDGE.md`'s highest-ranked Open Question: does §5's
-proposal lifecycle actually close the loop it exists to close — a Task
-blocked on missing architecture reaching `ready` again without a manual
-database edit? `test/proposal.test.ts`'s end-to-end test proves it does,
-against the exact scenario §5.1 describes (a gate failure from
-`buildWorkPackage`, not a synthetic one).
+`docs/PROJECT_KNOWLEDGE.md`'s highest-ranked Open Question at the time
+(Iteration 1): does §5's proposal lifecycle actually close the loop it
+exists to close — a Task blocked on missing architecture reaching `ready`
+again without a manual database edit? `test/proposal.test.ts`'s
+end-to-end test proves it does, against the exact scenario §5.1 describes
+(a gate failure from `buildWorkPackage`, not a synthetic one). Long since
+resolved and moved to Validated in `docs/PROJECT_KNOWLEDGE.md` — this
+section describes what Iteration 1 set out to prove, not a current
+ranking.
 
 ### 10.2 `src/proposal/proposal.ts`
 
@@ -399,5 +409,58 @@ intentionally created" in the Iteration 2 report.
 The validated claim is scoped to adapters with no real behavioral
 complexity. Whether the same near-zero marginal cost holds for a *real*
 adapter — one that has to express streaming, tool-call translation, or
-vendor-specific configuration through the port — is `docs/PROJECT_KNOWLEDGE.md`'s
-current #2 Open Question, not resolved here on purpose.
+vendor-specific configuration through the port — remains an open question
+in `docs/PROJECT_KNOWLEDGE.md` (check that document directly for its
+current ranking, not this sentence), not resolved here on purpose.
+
+## 12. Iteration 3: MCP grant enforcement
+
+Full detail in `docs/history/iteration-3/REPORT.md` and `LESSONS.md`.
+
+### 12.1 What this validates
+
+Whether the MCP grant model (§9.5) is a real enforcement boundary or only
+a documented formula. Answered with three independent forms of evidence —
+an in-process test, an HTTP-driven test, and a hand-run `curl`
+transcript — not an inference from a passing suite. See
+`docs/history/iteration-3/REPORT.md` § "The actual answer to the Open
+Question."
+
+### 12.2 `src/mcp/`
+
+`grant.ts` — `buildGrant(db, workPackage, runId)` implements §9.5's
+formula exactly (`allowedElementIds` = the Work Package's own capabilities
+and components, unioned with `impactOf(components, context_depth + 1)` —
+one level wider than the Work Package's own bound), and `assertInGrant`
+enforces it, including expiry. `McpGrant` itself was moved here from
+`src/runtime/port.ts`, its Iteration 2 placeholder home, now that
+something actually constructs and enforces one — checked directly against
+§2.3's declared dependency table, not assumed safe (`Runtime Integration →
+Execution` is the legal direction; `src/mcp/` has zero imports from
+`src/runtime/`).
+
+`tools.ts` — two grant-checked wrappers, `getAncestry` and
+`getCapabilitiesOf`, over the already-tested functions in
+`src/graph/traversals.ts`. Not the other five Architecture MCP tools
+(§9.2), not Work MCP (§9.3), not Repository MCP (§9.4).
+
+### 12.3 A disclosed interpretive choice, not an oversight
+
+The grant check applies to a tool call's *target* only. `getAncestry` on
+an in-grant element still returns the full ancestry chain, including
+ancestors that are not themselves individually in the grant — §9.5 does
+not say whether a grant should also filter a tool's *result*, and this
+project reads it as authorizing the call, not the result. `test/mcp.test.ts`
+asserts this explicitly. The corresponding gap this leaves — an agent can
+still *learn* an out-of-grant id exists via an in-grant call's result,
+even though it cannot query that id directly — is recorded as its own
+open question in `docs/PROJECT_KNOWLEDGE.md`, not glossed over.
+
+### 12.4 `POST /grants`, `POST /mcp/architecture/*`
+
+Enabling layer, same status as §10.5 and §11: makes the refusal
+demonstrable by hand (`npm run serve`, then `curl`), not the full §16 1e
+MCP surface — no real MCP protocol, no Work MCP, no Repository MCP, no
+Orchestrator to dispatch a real `ExecutionRun` and issue a grant
+automatically. `runId` is supplied by the caller, the same stand-in
+pattern Iteration 1 used before any Orchestrator existed.

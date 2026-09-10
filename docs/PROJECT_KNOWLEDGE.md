@@ -49,6 +49,8 @@ Demonstrated correct by direct implementation evidence.
 | §5.6's retirement policy (refused on a live Task or active Repository reference; permitted when the same proposal supplies succession) is fully specified by its two clauses and one escape hatch | Iteration 1 | Three isolated tests, one per clause, all passing against the real schema — no additional clause needed. |
 | The §3.5 no-orphan-task invariant, extracted into one shared function, agrees with itself across every caller | Iteration 1 | `assertReadyInvariants` now serves both the Iteration 0 YAML-import guard and the new lifecycle `markReady` function; all 71 tests pass with one implementation instead of two. |
 | Runtime independence holds when a second adapter is built against the §12.2 port — adding it costs "one row, one class" (§12.7), for adapters with no real behavioral complexity | Iteration 2 | Three independent checks: a structural test asserting the second adapter's only import is the port; an import-surface diff against the first adapter showing zero new dependencies; `port.ts` and `registry.ts` each written once and never touched again to accommodate the second adapter. **Validated for trivial adapters only — see Unproven for the real-adapter case.** |
+| The MCP grant model (§9.5) is a real enforcement boundary: an out-of-grant tool call is refused, an expired grant refuses everything | Iteration 3 | Three independent forms of evidence: an in-process test, an HTTP-driven test against a real `http.Server`, and a hand-run `curl` transcript, all reproducing the same issue-grant → succeed-in-grant → refuse-out-of-grant sequence. **Validated for direct call-target enforcement only — see Unproven for the narrower "can still learn X exists" gap.** |
+| §9.5's grant-widening formula (`allowedElementIds = WP elements ∪ impactOf(components, context_depth + 1)`) is genuinely wider than the Work Package's own bound, not the same value computed twice | Iteration 3 | The seed's one-hop `comp.invoice-service dependsOn comp.payment-service` edge is present in the grant (`context_depth + 1 = 1`) but absent from the Work Package's own `impactedComponents` (`context_depth = 0`), asserted together in one test. |
 
 ---
 
@@ -60,13 +62,14 @@ concrete experiment a future iteration can run directly.
 | Assumption | Open since | Why it's still open | What would resolve it |
 |---|---|---|---|
 | Curated FileAnchors (§13 Alt. A) are worth their maintenance cost and don't silently rot | Iteration 0 | One hand-authored anchor, written in the same commit as everything it describes — zero elapsed time, zero maintenance evidence. §13 is explicitly undecided in the source document. | Observe a real anchor against a real repository that changes over time (post repository-bootstrap); answer §13.4's own four questions. |
-| The MCP grant model (§9.5) actually bounds agent blast radius, not just describes an intention | Iteration 0 | No MCP server exists yet; the formula's missing half (`impactOf`) is wired into `buildWorkPackage`, but nothing has ever attempted — and been refused — an out-of-grant call. | Build one MCP tool, issue one grant, assert an out-of-grant call is refused. `alignment.liveReferences` (Iteration 1) is a second working example of the same read-only, cross-context query shape a grant check would need — reuse the pattern rather than inventing a new one. |
-| `WorkPackageProfile.context_depth` correctly bounds `impactOf` for depth > 0 | Iteration 0 | The seed dataset ships exactly one profile at `context_depth: 0`. The nonzero-depth code path went unexecuted for most of Iteration 0 without any test failing. | Seed a real profile at depth ≥ 1 against a component with a real multi-hop dependency chain; have a human judge whether the resulting impact set is useful. |
+| `WorkPackageProfile.context_depth` correctly bounds `impactOf`, and the grant's `context_depth + 1` widening composes correctly on top, for depth > 0 | Iteration 0, extended Iteration 3 | The seed dataset ships exactly one profile at `context_depth: 0`; only `impactOf(..., 1)` (the grant's case) has ever been exercised. A profile at depth ≥ 1 — where the Work Package itself already includes one-hop impact and the grant would need to widen one level *further* — has never been built. | Seed a real profile at depth ≥ 1 against a component with a real multi-hop dependency chain; check both the Work Package's own impact set and the grant built from it. |
 | A component served by more than one repository resolves to a *usable* Work Package, not just a mechanically correct one | Iteration 0 | Only tested against a synthetic fixture built to trigger the ambiguity branch — no real content behind either repository. | Seed a second real repository against a real component; generate a Work Package with ambiguity allowed; have a human judge the result. |
 | The recursive-CTE traversal layer performs acceptably at realistic scale | Iteration 0 | Correctness proven at ~10 architecture elements, 5 work items, 1 dependency edge. Never measured against anything resembling a real organization's graph. | Generate a synthetic graph at representative scale (e.g. 500 components, 2,000 tasks, depth 5); measure traversal latency against the MCP call budget. |
 | The in-process, direct-function-call form of `RunBlocked` / `ProposalApplied` (§2.2) will still be the right shape once a real Orchestrator (1f) exists | Iteration 1 | No event type, dispatcher, or subscription mechanism exists yet — "the event" is just which function gets called (`blockTask`, `releaseBlockedTasks`), by a test or a human today. | When 1f's Orchestrator is built, wire its `RunBlocked` handling to call these functions as real event effects; see whether the signatures survive or need reshaping around an actual event payload. |
 | R-1's write-authorization boundary ("the runtime never holds a write credential") holds against a real caller, not just in the data model | Iteration 1 | The state machine enforces R-1's substance (agent-authored proposals are always `draft`; only a human principal can approve), but nothing yet distinguishes "the platform, acting on a genuine `RunBlocked` event" from "any HTTP caller" — Authentication remains out of scope. Not new, but newly testable now that a real HTTP surface exists. | Not this platform's evidence to gather until Authentication is in scope — revisit then rather than assuming the state machine alone was always sufficient. |
 | The near-zero marginal cost of a second adapter (validated, above) holds for a *real* adapter — one expressing actual behavioral differences (streaming, tool-call translation, vendor config) through the port, not a canned event sequence | Iteration 2 | Both adapters built so far are deliberately trivial; neither exercised anything the port might need to grow to support (structured tool calls, streaming delivery, per-vendor configuration surfaced through `capabilities()`). | Build the Claude SDK Adapter (§12.7), the first real adapter, and re-run the same three checks (structural, comparative, no-second-pass on the port/registry) against it. |
+| The grant model bounds what an agent can *learn*, not only what it can *directly query* | Iteration 3 | `getAncestry`'s grant check applies to its target id only; the returned ancestry chain is not filtered against `allowedElementIds`, so an in-grant call can surface the id, kind, and name of an out-of-grant ancestor (e.g. the containment root). A disclosed, deliberate reading of an ambiguous line in §9.5, not a bug — but it makes the *provable* blast-radius bound narrower than "the agent cannot learn X exists." | Build a scenario where this distinction actually matters to a real or realistic agent's behavior before deciding whether result-filtering is worth the cost to the traversal layer's simplicity — evidence before redesign, not by default. |
+| A real adapter can actually use a grant to drive genuine (non-simulated) MCP protocol calls | Iteration 3 | Grant construction and enforcement are validated against direct function calls and HTTP requests written for this iteration's own tests — never against a real MCP client/server exchange, because no real MCP protocol server exists (deliberately deferred, see `docs/history/iteration-3/REPORT.md`). | Build the real MCP protocol layer (§16 1e) and the Claude SDK Adapter (§12.7) together, and check whether the grant as currently shaped is sufficient for an actual tool-call round trip. |
 
 ---
 
@@ -92,12 +95,13 @@ Important unresolved issues, in priority order. These are broader than any
 single row above — several draw together multiple Unproven entries into
 one architectural bet.
 
-1. **Is the MCP grant model a real enforcement boundary, or only a
-   documented convention?** The stated reason RBAC was judged safe to defer
-   in the MVP (§15). Currently a formula, not a demonstrated refusal —
-   though Iteration 1's `alignment.liveReferences` is now a second working
-   example of the cross-context, read-only query shape a real grant check
-   would need.
+1. **Does the MCP grant model bound what an agent can *learn*, not only
+   what it can *directly query*?** Iteration 3 validated call-target
+   enforcement (see Validated, above); a call result can still surface the
+   existence and basic metadata of an element outside the grant when that
+   element sits on a legitimately-reachable traversal path (e.g. a
+   containment root). Narrower than "resolved," not the same as "open" —
+   see Unproven, above, for exactly what remains.
 2. **Does runtime independence hold for a *real* second adapter, not just
    two deliberately trivial ones?** Iteration 2 validated the marginal
    cost for adapters with no behavioral complexity (see Validated, above);
@@ -118,6 +122,17 @@ close?* — see Validated, above.
 Resolved as of Iteration 2 for the trivial case, narrowed rather than
 removed: *does runtime independence hold under an actual second adapter?*
 — replaced above by the real-adapter question that remains.
+
+Resolved as of Iteration 3 for direct call-target enforcement, narrowed
+rather than removed: *is the MCP grant model a real enforcement boundary,
+or only a documented convention?* — replaced above by the narrower
+information-exposure question that remains.
+
+A note on numbering, added after this document's own numbered rankings
+were twice quoted stale in other files' prose (`docs/history/iteration-2/`
+and `iteration-3/REPORT.md`, both corrected): treat the order above as
+current only as of whichever iteration most recently edited it — check
+this file directly rather than trusting a number repeated elsewhere.
 
 See the corresponding `docs/history/iteration-N/LESSONS.md` →
 "Recommended next-step validation" for the smallest experiment that would
