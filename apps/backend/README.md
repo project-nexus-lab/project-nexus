@@ -70,6 +70,9 @@ src/
                     liveReferences — Iteration 1, see §10.4.
   workpackage/       buildWorkPackage(taskId, profileId) (§11) — canonical
                     serialisation, content hashing, insert-only persistence.
+  execution/         Execution-owned run telemetry (raw evidence, not
+                    analytics) — a focused enhancement after Iteration 6,
+                    not an iteration; see "Execution telemetry" below.
   proposal/          Iteration 1: the Architecture Change Proposal lifecycle
                     (§5) — draft, submit, approve, reject, apply.
   work/              Iteration 1: WorkItem lifecycle (§3.5, §5.4) — link a
@@ -93,7 +96,8 @@ src/
                     verify-github (Iteration 5), verify-claude-adapter
                     (Iteration 6) — neither verify-* script is part of
                     npm test.
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15 below.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15 below,
+                    plus execution-telemetry.test.ts (see "Execution telemetry" below).
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
@@ -240,7 +244,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 122 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 130 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -704,3 +708,79 @@ iteration's MCP server is real but in-process); the other five
 Architecture MCP tools and all of Work/Repository MCP; the output path
 (§12.5 — branch push and PR); any role other than `role.implementer`;
 adapter-selection or multi-adapter dispatch logic.
+
+## Execution telemetry
+
+**Not an iteration.** A focused enhancement, done after Iteration 6, to
+close a specific gap: real agent runs were producing real evidence
+(token counts, durations, what was actually retrieved) with nowhere to
+record it, and `execution.execution_run`'s own `started_at`/`ended_at`
+columns had sat unwritten since Iteration 0. The goal is evidence
+preservation, not analytics — no dashboards, no aggregation, no cost
+calculation.
+
+### What was reviewed before anything was built
+
+Per the request that prompted this work, the existing implementation was
+reviewed first, not guessed at: `@anthropic-ai/claude-agent-sdk` exports
+no token-counting utility (checked directly against its type
+definitions), so a Work Package's real token count is not measurable
+today — only its real byte size is. No repository-scoped MCP tool exists
+(only `getAncestry`/`getCapabilitiesOf`, both element-scoped), so
+`accessedRepositoryCount` is not measurable today either. Both fields
+exist in the schema and hold `null`, documented precisely, not estimated
+or omitted.
+
+### `src/execution/telemetry.ts` and `execution.run_telemetry`
+
+A new table, insert-only, in the `execution` schema — deliberately
+separate from `execution.execution_run`/`run_event` (which model a full
+Orchestrator-driven state machine this enhancement does not build).
+Execution owns the table and the writer function
+(`recordRunTelemetry`); Runtime Integration populates it —
+`ClaudeSdkAdapter` gathers real facts only it has access to (SDK token
+counts, real timestamps) and calls the Execution-owned function, never
+the reverse. Nothing in `src/execution/telemetry.ts` imports from
+`src/runtime/`; every field is a plain string, number, `Date`, or `null`
+— no Claude-specific shape crosses into the schema or this module.
+
+`ClaudeSdkAdapter.events()` records exactly one row per run, from a
+`finally` block wrapping its message loop — fires on normal completion
+*and* on an in-process exception, so a run that dies mid-stream still
+leaves behind whatever was known up to that point. A hard process kill
+that skips `finally` entirely is the one case this cannot protect
+against; not claimed otherwise. A telemetry write failure is logged, not
+thrown — it must never mask or replace evidence of what the run itself
+actually did.
+
+### Demonstrated against a real run
+
+`npm run verify:claude-adapter` now also prints and checks the real
+`execution.run_telemetry` row its own run produces:
+
+```
+duration_ms: 8489              (real, positive)
+work_package_size_bytes: 654   (real, positive)
+input_tokens / output_tokens / total_tokens: 6 / 514 / 520   (from the real SDK result)
+grant_element_count / grant_repository_count: 1 / 0          (the real grant)
+accessed_element_count: 1      (the refused call does not count as accessed)
+work_package_size_tokens: null (no tokenizer exists)
+accessed_repository_count: null (no repository-scoped MCP tool exists)
+```
+
+`test/execution-telemetry.test.ts` (8 hermetic cases) covers the pure
+context/grant-deriving functions, a full insert/select round trip against
+the real schema, a run that never reaches a terminal result still leaving
+a row, the `run.<ulid>` id check constraint, and confirms no cost-related
+column exists on the table at all.
+
+### What this does, and does not, tell us
+
+`docs/PROJECT_KNOWLEDGE.md` records the capability itself as Validated —
+a real run can leave behind real evidence of what it cost and touched.
+It explicitly does **not** validate the larger claim this enhancement was
+building toward being able to test: that Nexus *reduces* context
+consumption or execution cost. That remains Unproven, deliberately —
+one run's numbers are a data point, not a trend; validating the larger
+claim needs historical execution data this enhancement only makes it
+possible to start collecting.
