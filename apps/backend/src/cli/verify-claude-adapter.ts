@@ -15,6 +15,18 @@
  * Also checks the real `execution.run_telemetry` row this run produces —
  * a focused enhancement added after Iteration 6, not part of it; see
  * `apps/backend/README.md`, "Execution telemetry."
+ *
+ * Persisted by default (`.nexus-data/claude-adapter-verify-db`, override
+ * with an argv path), unlike `verify.ts`/`verify-github.ts`'s deliberate
+ * in-memory-per-run design — those two exist only to check a mechanism
+ * still works; this one's whole second half exists to leave behind real
+ * telemetry evidence, which an in-memory database would discard the
+ * moment this process exits. Found and fixed the same day telemetry was
+ * added: the first two real runs demonstrating it each used `openDb()`
+ * with no path, so neither of those rows survived past the script that
+ * produced them. Fixture inserts are `on conflict do nothing` so running
+ * this repeatedly against the same persisted directory accumulates
+ * telemetry rows instead of failing on the second run's duplicate seed.
  */
 
 import { openDb } from "../db/client.js";
@@ -33,20 +45,25 @@ function check(label: string, condition: boolean, detail?: unknown) {
 
 console.log("=== Iteration 6 verification: a real Claude SDK Adapter ===\n");
 
-const db = await openDb();
+const dataDir = process.argv[2] ?? ".nexus-data/claude-adapter-verify-db";
+console.log(`(persisted database: ${dataDir})`);
+const db = await openDb(dataDir);
 await migrate(db);
 
 // Minimal, distinctively-named architecture — not seed data, only enough
 // for one in-grant element (with a distinctive ancestor id to check for in
 // the agent's own final text) and one deliberately out-of-grant sibling.
-await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('prod.iter6', 'product', null, 'Iteration 6')`);
-await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('dom.iter6', 'domain', 'prod.iter6', 'Iteration 6')`);
-await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('subsys.iter6-cockpit', 'subsystem', 'dom.iter6', 'Cockpit')`);
-await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('comp.iter6-instrument-panel', 'component', 'subsys.iter6-cockpit', 'Instrument Panel')`);
-await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('comp.iter6-fuel-gauge', 'component', 'subsys.iter6-cockpit', 'Fuel Gauge')`);
-await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('cap.iter6-altitude-readout', 'capability', 'subsys.iter6-cockpit', 'Altitude Readout')`);
+// on conflict do nothing: this database is now persisted across runs
+// (see the module doc comment above), so re-seeding the same fixture on
+// a second invocation must not fail.
+await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('prod.iter6', 'product', null, 'Iteration 6') on conflict (id) do nothing`);
+await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('dom.iter6', 'domain', 'prod.iter6', 'Iteration 6') on conflict (id) do nothing`);
+await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('subsys.iter6-cockpit', 'subsystem', 'dom.iter6', 'Cockpit') on conflict (id) do nothing`);
+await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('comp.iter6-instrument-panel', 'component', 'subsys.iter6-cockpit', 'Instrument Panel') on conflict (id) do nothing`);
+await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('comp.iter6-fuel-gauge', 'component', 'subsys.iter6-cockpit', 'Fuel Gauge') on conflict (id) do nothing`);
+await db.query(`insert into architecture.element (id, kind, parent_id, name) values ('cap.iter6-altitude-readout', 'capability', 'subsys.iter6-cockpit', 'Altitude Readout') on conflict (id) do nothing`);
 await db.query(
-  `insert into architecture.element_provision (component_id, capability_id, is_primary) values ('comp.iter6-instrument-panel', 'cap.iter6-altitude-readout', true)`,
+  `insert into architecture.element_provision (component_id, capability_id, is_primary) values ('comp.iter6-instrument-panel', 'cap.iter6-altitude-readout', true) on conflict (component_id, capability_id) do nothing`,
 );
 
 console.log("\n--- Registering the adapter ---");
