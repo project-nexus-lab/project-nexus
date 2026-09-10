@@ -27,8 +27,9 @@ independence under a second adapter — is §11. Iteration 3 — MCP grant
 enforcement — is §12. Iteration 4 — repository bootstrap — is §13.
 Iteration 5 — a real GitHub-backed VcsProvider — is §14. Iteration 6 — a
 real Claude SDK Adapter — is §15. Iteration 7 — does the MCP grant model
-bound what an agent can learn — is §16. The Execution telemetry section
-after §16 is a focused enhancement done chronologically between
+bound what an agent can learn — is §16. Iteration 8 — can a real agent's
+RunBlocked signal be captured — is §17. The Execution telemetry section
+between §16 and §17 is a focused enhancement done chronologically between
 Iterations 6 and 7, not an iteration itself — see its own note on why it
 appears where it does.)*
 
@@ -87,6 +88,8 @@ src/
                     two deliberately trivial adapters — see §11 below.
                     Iteration 6: claude-sdk.ts, a real adapter over
                     @anthropic-ai/claude-agent-sdk — see §15 below.
+                    Iteration 8: a standing BLOCKED: convention and a
+                    real RunBlocked translation path — see §17 below.
   mcp/               Iteration 3: MCP grant construction and enforcement
                     (§9.5) over two grant-checked tool wrappers — see §12
                     below. Iteration 7: getAncestry's result is now
@@ -97,12 +100,13 @@ src/
                     (§10.4) — see §13 below. Iteration 5:
                     gh-cli-vcs-provider.ts, a real GitHub-backed
                     VcsProvider — see §14 below.
-  cli/              Seven scripts: migrate, import, verify, serve,
+  cli/              Eight scripts: migrate, import, verify, serve,
                     verify-github (Iteration 5), verify-claude-adapter
                     (Iteration 6), investigate-ancestry-disclosure
-                    (Iteration 7) — none of the verify-*/investigate-*
-                    scripts are part of npm test.
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16 below,
+                    (Iteration 7), investigate-run-blocked (Iteration 8)
+                    — none of the verify-*/investigate-* scripts are
+                    part of npm test.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16/§17 below,
                     plus execution-telemetry.test.ts (see "Execution telemetry" below).
 ```
 
@@ -250,7 +254,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 133 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 138 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -773,6 +777,79 @@ every MCP tool (only `getAncestry` has been shown to carry this risk —
 see `docs/PROJECT_KNOWLEDGE.md` Unproven); the adversarial-prompting
 scenario named in `SCOPE.md` §5.B; any change to `assertInGrant` or the
 grant-widening formula, both already validated and untouched.
+
+## 17. Iteration 8: can a real agent's RunBlocked signal be captured?
+
+Full detail in `docs/history/iteration-8/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`.
+
+### 17.1 What this validates
+
+The narrower half of `docs/PROJECT_KNOWLEDGE.md`'s current Open Question
+#1: does the six-event `RunEvent` vocabulary hold for `RunBlocked`, the
+one kind (besides `ArtifactProduced`) Iteration 6's real adapter never
+produced from anything real? Answered by driving one real run where a
+real agent hit a real, legitimate refusal and correctly signaled it —
+`events()` translated that into a genuine `RunBlocked` event on the
+first live attempt, no correction needed afterward. See
+`docs/history/iteration-8/REPORT.md` § "The live run, in full."
+
+### 17.2 `src/runtime/adapters/claude-sdk.ts` — two small, targeted additions
+
+`buildPrompt()` now always includes one standing instruction (not a
+per-task `acceptanceCriteria` item): if a tool call is refused for being
+outside the grant, and the agent judges that information genuinely
+necessary, end the response with an exact line, `BLOCKED:
+context-insufficient — <one sentence>`. `mapMessage()` gained one new
+parsing path (`parseBlockedSignal()`) that checks the terminal result
+against that exact convention and emits a real `RunBlocked` event
+(reason `context-insufficient`) instead of `RunCompleted` when it
+matches. Every other message-kind mapping is unchanged. `proposalDraft`
+is never populated — deliberately out of scope, a separate, larger
+parsing and design problem.
+
+Only `context-insufficient` has a real translation path.
+`architecture-change-required` and `mapping-missing` remain type-level
+only — neither is discoverable with the two MCP tools this project has
+(`getAncestry`, `getCapabilitiesOf`); see `docs/PROJECT_KNOWLEDGE.md`
+Unproven.
+
+### 17.3 `src/cli/investigate-run-blocked.ts` — not part of `npm test`
+
+Deliberately not named `verify-*`: the outcome was not known in advance.
+
+```
+npm run investigate:run-blocked   # requires an authenticated claude CLI
+```
+
+Seeds a task with a genuine, ordinary reason to check a related
+component's capabilities before treating implementation as ready — the
+related component is deliberately outside the run's grant. Classifies
+the result against the protocol-level `toolCalls`/`toolResults` record
+and the real event sequence `events()` produced, not the agent's prose
+alone — using `claude-sdk.ts`'s own `parseBlockedSignal()`, not a second
+regex (a real duplication found and fixed during `/review`; see
+`docs/history/iteration-8/REPORT.md`, "Pre-commit review findings").
+
+### 17.4 A deliberately fragile mechanism, chosen on purpose
+
+The `BLOCKED:` convention is an exact-match regex, not a lenient parser
+— named as a real risk in `SCOPE.md` §5.A before the run, not discovered
+afterward. A looser parser was rejected specifically because it risks a
+worse failure mode (an ordinary report misclassified as blocked) than
+the one it would guard against (a real signal phrased slightly
+differently and missed). The live run's own agent output shows the
+convention coexisting with full prose reasoning before it — the marker
+is a terminal signal, not a replacement for genuine explanation.
+
+### 17.5 Deliberately not built
+
+`proposalDraft` population; `architecture-change-required` and
+`mapping-missing` (see 17.2); a dedicated `requestBlocked` MCP tool
+(named as an alternative, not needed — the simpler mechanism worked);
+any Orchestrator-side reaction to a received `RunBlocked` event;
+`ArtifactProduced` and the real output path — the one `RunEvent` kind
+that remains entirely untested against a real agent.
 
 ## Execution telemetry
 
