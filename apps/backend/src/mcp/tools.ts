@@ -10,15 +10,31 @@ import { assertInGrant, type McpGrant } from "./grant.js";
  * Architecture tools, and all of Work MCP and Repository MCP, are
  * deferred (see `docs/history/iteration-3/REPORT.md`).
  *
- * The grant check applies to the tool call's target only. `getAncestry`
- * still walks all the way to the containment root even when the root's id
- * is not itself in `grant.allowedElementIds` — §9.5 does not say whether a
- * grant should also filter a tool's result set, and this project reads it
- * as authorizing the *call*, not re-deriving the traversal's own contract
- * to also mean "and filter everything it returns." A disclosed choice, not
- * an oversight — see the Iteration 3 report for the reasoning and what
- * would need to change if a future iteration decides otherwise.
+ * The grant check applies to the tool call's target only — that part is
+ * unchanged and still correct (see `docs/PROJECT_KNOWLEDGE.md` Validated).
+ *
+ * `getAncestry`'s *result* is now filtered (Iteration 7,
+ * `docs/history/iteration-7/SCOPE.md`/`REPORT.md`): Iteration 3 left the
+ * full chain unredacted as a disclosed, deliberate choice, reasoning that
+ * §9.5 authorizes the call, not the result. Iteration 7 tested that
+ * choice against a real agent, not just in the abstract — a real,
+ * narrowly-scoped run, given a legitimate reason to call this tool and
+ * never told about the wider product context, still surfaced an
+ * out-of-grant ancestor's name unprompted in its own final output. That
+ * is a real disclosure, not a theoretical one, so the choice was
+ * corrected rather than left as documented risk.
  */
+
+/** A redacted ancestor is a real row at a real depth and kind — only its identity is hidden. */
+export function redactOutOfGrantAncestor(row: AncestryRow, grant: McpGrant): AncestryRow {
+  if (grant.allowedElementIds.includes(row.id)) return row;
+  // Depth-scoped, not a single fixed placeholder: multiple distinct
+  // out-of-grant ancestors must stay distinguishable from each other (the
+  // legitimate use this project's own Iteration 7 scenario needed —
+  // "does this chain skip an implausible level" — depends on being able
+  // to tell the ancestors apart, not just knowing "something was hidden").
+  return { ...row, id: `[redacted:depth=${row.depth}]`, name: "[redacted]" };
+}
 
 export async function getAncestry(
   db: SqlExecutor,
@@ -26,7 +42,8 @@ export async function getAncestry(
   elementId: string,
 ): Promise<AncestryRow[]> {
   assertInGrant(grant, "element", elementId);
-  return ancestry(db, elementId);
+  const rows = await ancestry(db, elementId);
+  return rows.map((row) => redactOutOfGrantAncestor(row, grant));
 }
 
 export async function getCapabilitiesOf(
