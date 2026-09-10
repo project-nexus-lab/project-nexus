@@ -8,6 +8,7 @@
     "migrate": "tsx src/cli/migrate.ts",
     "import": "tsx src/cli/import.ts",
     "verify": "tsx src/cli/verify.ts",
+    "verify:github": "tsx src/cli/verify-github.ts",
     "serve": "tsx src/cli/serve.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"

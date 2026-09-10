@@ -19,9 +19,13 @@ import type { VcsProvider } from "./vcs-provider.js";
  *
  * Step 6, "Human merges PR" → `active`, and the `RepositoryActivated`
  * event (§2.2: "Tasks awaiting a repository re-gated") are both out of
- * scope: there is no real VCS integration to merge a PR against (§10.2's
- * `VcsProvider` here is `NoopVcsProvider`), and no "Task blocked on a
- * missing repository" state exists anywhere in this schema to re-gate —
+ * scope: nothing in this codebase pushes `generateProjection`'s output,
+ * creates a branch, or opens a PR to merge — true even though a real
+ * `VcsProvider` now exists (`GhCliVcsProvider`, Iteration 5; see
+ * `docs/history/iteration-5/REPORT.md`), because that adapter's `create()`
+ * is the only call `provisionRepository` makes and nothing here calls
+ * `VcsProvider` again past that step. No "Task blocked on a missing
+ * repository" state exists anywhere in this schema to re-gate, either —
  * only `blocked_by_proposal_id` exists, tied to proposals, not
  * repositories. `activateRepository` here is a bare state transition.
  */
