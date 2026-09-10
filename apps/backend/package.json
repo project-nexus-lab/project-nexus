@@ -9,11 +9,13 @@
     "import": "tsx src/cli/import.ts",
     "verify": "tsx src/cli/verify.ts",
     "verify:github": "tsx src/cli/verify-github.ts",
+    "verify:claude-adapter": "tsx src/cli/verify-claude-adapter.ts",
     "serve": "tsx src/cli/serve.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.267",
     "@electric-sql/pglite": "^0.5.8",
     "yaml": "^2.9.0",
     "zod": "^4.6.1"
