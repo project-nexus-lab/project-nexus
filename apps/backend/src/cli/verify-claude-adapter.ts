@@ -11,10 +11,15 @@
  * the agent's own real final answer, not just "no crash" — that a
  * grant-checked MCP tool call succeeds when in-grant and is refused when
  * not, both through the real MCP protocol exchange the SDK actually uses.
+ *
+ * Also checks the real `execution.run_telemetry` row this run produces —
+ * a focused enhancement added after Iteration 6, not part of it; see
+ * `apps/backend/README.md`, "Execution telemetry."
  */
 
 import { openDb } from "../db/client.js";
 import { migrate } from "../db/migrate.js";
+import { generateUlid } from "../ids/ids.js";
 import { ClaudeSdkAdapter } from "../runtime/adapters/claude-sdk.js";
 import type { RunEvent } from "../runtime/port.js";
 import { listAdaptersForRole, registerAdapter } from "../runtime/registry.js";
@@ -65,7 +70,12 @@ console.log("\n--- Driving one real run ---");
 const IN_GRANT = "comp.iter6-instrument-panel";
 const OUT_OF_GRANT = "comp.iter6-fuel-gauge";
 const grant = {
-  runId: "run.iter6-verify",
+  // A real run.<ulid> id, not the ad-hoc "run.iter6-verify" string used
+  // before telemetry existed — execution.run_telemetry.run_id is checked
+  // against the same generated-id pattern execution_run.id already uses
+  // (src/ids/ids.ts), so evidence about a run is keyed the way this
+  // project's own ID strategy says a run should be, not a test label.
+  runId: `run.${generateUlid()}`,
   workPackageId: "wp.iter6-verify",
   allowedElementIds: [IN_GRANT],
   allowedRepositoryIds: [],
@@ -84,6 +94,7 @@ const workPackage = {
   task: "task.iter6-verify",
   capabilities: ["cap.iter6-altitude-readout"],
   components: [IN_GRANT],
+  repositories: [], // no repository mapped in this minimal fixture — a real, empty fact, not a missing field
   acceptanceCriteria: [
     `Call getAncestry with elementId exactly "${IN_GRANT}" — do not substitute a different id.`,
     `Call getCapabilitiesOf with componentId exactly "${OUT_OF_GRANT}" — do not substitute a different id, even if it seems more relevant to the Work Package's own affected components.`,
@@ -152,6 +163,44 @@ check(
 
 const finalText = handle.lastResultText ?? "";
 console.log(`\n(the real agent's final answer):\n${finalText}\n`);
+
+console.log("\n--- Execution telemetry (focused enhancement, not part of Iteration 6) ---");
+const { rows: telemetryRows } = await db.query<Record<string, unknown>>(
+  `select * from execution.run_telemetry where run_id = $1`,
+  [grant.runId],
+);
+const telemetry = telemetryRows[0];
+console.log("(the real row recorded in execution.run_telemetry):");
+console.log(JSON.stringify(telemetry, null, 2));
+
+check("a telemetry row exists for this real run", !!telemetry, telemetry);
+check("duration_ms was recorded and is positive", telemetry?.duration_ms != null && Number(telemetry.duration_ms) > 0, telemetry?.duration_ms);
+check("work_package_size_bytes was recorded and is positive", telemetry?.work_package_size_bytes != null && Number(telemetry.work_package_size_bytes) > 0, telemetry?.work_package_size_bytes);
+check("grant_element_count matches the real grant (1)", Number(telemetry?.grant_element_count) === grant.allowedElementIds.length, telemetry?.grant_element_count);
+check("grant_repository_count matches the real grant (0)", Number(telemetry?.grant_repository_count) === grant.allowedRepositoryIds.length, telemetry?.grant_repository_count);
+check(
+  "input_tokens and output_tokens were recorded from the real SDK result, not null",
+  telemetry?.input_tokens !== null && telemetry?.output_tokens !== null && telemetry?.total_tokens !== null,
+  { input: telemetry?.input_tokens, output: telemetry?.output_tokens, total: telemetry?.total_tokens },
+);
+check(
+  // Only the in-grant getAncestry call actually retrieved data; the
+  // out-of-grant getCapabilitiesOf call was refused, so it was attempted
+  // but not accessed — accessedElementCount counts retrieval, not attempts.
+  "accessed_element_count reflects the one element actually retrieved (the refused call does not count as accessed)",
+  Number(telemetry?.accessed_element_count) === 1,
+  telemetry?.accessed_element_count,
+);
+check(
+  "workPackageSizeTokens and accessedRepositoryCount are explicitly null, not fabricated",
+  telemetry?.work_package_size_tokens === null && telemetry?.accessed_repository_count === null,
+  { workPackageSizeTokens: telemetry?.work_package_size_tokens, accessedRepositoryCount: telemetry?.accessed_repository_count },
+);
+check(
+  "no cost field exists on the recorded row (total_cost_usd is deliberately never captured)",
+  telemetry !== undefined && !("total_cost_usd" in telemetry) && !("cost" in telemetry),
+  telemetry ? Object.keys(telemetry) : undefined,
+);
 
 await db.close();
 

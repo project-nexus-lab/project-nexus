@@ -1,6 +1,11 @@
 import { createSdkMcpServer, query, tool, type Query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { SqlExecutor } from "../../db/sql-executor.js";
+import {
+  deriveGrantContextFacts,
+  deriveWorkPackageContextFacts,
+  recordRunTelemetry,
+} from "../../execution/telemetry.js";
 import { GrantRefusedError } from "../../mcp/grant.js";
 import { getAncestry, getCapabilitiesOf } from "../../mcp/tools.js";
 import type {
@@ -36,6 +41,11 @@ import type {
  * adapter never needed, since neither called real domain code. That is
  * itself evidence toward §1 of the scope document, not an implementation
  * detail to gloss over.
+ *
+ * Since Iteration 6 closed: `events()` also records one
+ * `execution.run_telemetry` row per run (`src/execution/telemetry.ts`) —
+ * a focused enhancement, not part of Iteration 6 itself. See
+ * `apps/backend/README.md`, "Execution telemetry."
  */
 
 /**
@@ -69,6 +79,18 @@ export interface ClaudeSdkAdapterHandle extends AdapterHandle {
   toolCalls: Array<{ id: string; name: string; input: unknown }>;
   /** The matching real MCP tool results, keyed the same way the SDK keys them (`tool_use_id`) — lets a verification script check a *specific* call's outcome directly, rather than trusting the agent's own prose summary of it. */
   toolResults: Array<{ toolUseId: string; isError: boolean; text: string }>;
+  /**
+   * Telemetry inputs gathered at `start()` time, carried through to the
+   * single `recordRunTelemetry` call in `events()`'s `finally` block (see
+   * `src/execution/telemetry.ts`). Not part of the port; adapter-internal
+   * bookkeeping for a focused enhancement, same disclosed-exception shape
+   * as everything else on this handle.
+   */
+  telemetryStartedAt: Date;
+  telemetryWorkPackageId: string;
+  telemetryContext: ReturnType<typeof deriveWorkPackageContextFacts>;
+  telemetryGrant: ReturnType<typeof deriveGrantContextFacts>;
+  telemetryUsage?: { input_tokens: number; output_tokens: number };
 }
 
 export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
@@ -95,7 +117,16 @@ export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
         maxTurns: 8,
       },
     });
-    const handle: ClaudeSdkAdapterHandle = { runId, query: q, toolCalls: [], toolResults: [] };
+    const handle: ClaudeSdkAdapterHandle = {
+      runId,
+      query: q,
+      toolCalls: [],
+      toolResults: [],
+      telemetryStartedAt: new Date(),
+      telemetryWorkPackageId: grant.workPackageId,
+      telemetryContext: deriveWorkPackageContextFacts(workPackage),
+      telemetryGrant: deriveGrantContextFacts(grant),
+    };
     return handle;
   }
 
@@ -103,29 +134,79 @@ export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
     const h = handle as ClaudeSdkAdapterHandle;
     yield { kind: "RunStarted" };
 
-    for await (const message of h.query) {
-      if (message.type === "result" && message.subtype === "success" && !message.is_error) {
-        h.lastResultText = message.result;
-      }
-      if (message.type === "assistant") {
-        for (const block of message.message.content) {
-          if (block.type === "tool_use") h.toolCalls.push({ id: block.id, name: block.name, input: block.input });
-        }
-      }
-      if (message.type === "user" && Array.isArray(message.message?.content)) {
-        for (const block of message.message.content) {
-          if (block.type === "tool_result") {
-            h.toolResults.push({
-              toolUseId: block.tool_use_id,
-              isError: block.is_error === true,
-              text: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
-            });
+    try {
+      for await (const message of h.query) {
+        if (message.type === "result") {
+          h.telemetryUsage = { input_tokens: message.usage.input_tokens, output_tokens: message.usage.output_tokens };
+          if (message.subtype === "success" && !message.is_error) {
+            h.lastResultText = message.result;
           }
         }
+        if (message.type === "assistant") {
+          for (const block of message.message.content) {
+            if (block.type === "tool_use") h.toolCalls.push({ id: block.id, name: block.name, input: block.input });
+          }
+        }
+        if (message.type === "user" && Array.isArray(message.message?.content)) {
+          for (const block of message.message.content) {
+            if (block.type === "tool_result") {
+              h.toolResults.push({
+                toolUseId: block.tool_use_id,
+                isError: block.is_error === true,
+                text: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
+              });
+            }
+          }
+        }
+        const mapped = mapMessage(message);
+        if (mapped) yield mapped;
       }
-      const mapped = mapMessage(message);
-      if (mapped) yield mapped;
+    } finally {
+      // Runs on normal completion *and* on an in-process exception, so a
+      // run that dies mid-stream still leaves the facts known up to that
+      // point (see src/execution/telemetry.ts's own disclosed limit: a
+      // hard process kill that skips `finally` entirely is not covered).
+      // A telemetry write failure must not be allowed to mask or replace
+      // whatever the run itself actually did — logged, not thrown.
+      try {
+        await this.recordTelemetry(h);
+      } catch (err) {
+        console.error(`[claude-sdk telemetry] failed to record run ${h.runId}:`, err);
+      }
     }
+  }
+
+  private async recordTelemetry(h: ClaudeSdkAdapterHandle): Promise<void> {
+    const completedAt = new Date();
+    const accessedElementIds = new Set(
+      h.toolCalls
+        .filter((c) => !h.toolResults.find((r) => r.toolUseId === c.id)?.isError)
+        .map((c) => (c.input as { elementId?: string; componentId?: string }).elementId
+          ?? (c.input as { elementId?: string; componentId?: string }).componentId)
+        .filter((id): id is string => typeof id === "string"),
+    );
+    await recordRunTelemetry(this.db, {
+      runId: h.runId,
+      workPackageId: h.telemetryWorkPackageId,
+      runtimeAdapterId: this.id,
+      startedAt: h.telemetryStartedAt,
+      completedAt,
+      durationMs: completedAt.getTime() - h.telemetryStartedAt.getTime(),
+      inputTokens: h.telemetryUsage?.input_tokens ?? null,
+      outputTokens: h.telemetryUsage?.output_tokens ?? null,
+      totalTokens: h.telemetryUsage ? h.telemetryUsage.input_tokens + h.telemetryUsage.output_tokens : null,
+      workPackageSizeBytes: h.telemetryContext.workPackageSizeBytes,
+      workPackageSizeTokens: h.telemetryContext.workPackageSizeTokens,
+      capabilityCount: h.telemetryContext.capabilityCount,
+      componentCount: h.telemetryContext.componentCount,
+      repositoryCount: h.telemetryContext.repositoryCount,
+      grantElementCount: h.telemetryGrant.grantElementCount,
+      grantRepositoryCount: h.telemetryGrant.grantRepositoryCount,
+      accessedElementCount: accessedElementIds.size,
+      // No repository-scoped MCP tool exists yet (only getAncestry and
+      // getCapabilitiesOf, both element-scoped) — see telemetry.ts.
+      accessedRepositoryCount: null,
+    });
   }
 
   async cancel(handle: AdapterHandle): Promise<void> {
