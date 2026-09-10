@@ -28,10 +28,12 @@ enforcement — is §12. Iteration 4 — repository bootstrap — is §13.
 Iteration 5 — a real GitHub-backed VcsProvider — is §14. Iteration 6 — a
 real Claude SDK Adapter — is §15. Iteration 7 — does the MCP grant model
 bound what an agent can learn — is §16. Iteration 8 — can a real agent's
-RunBlocked signal be captured — is §17. The Execution telemetry section
-between §16 and §17 is a focused enhancement done chronologically between
-Iterations 6 and 7, not an iteration itself — see its own note on why it
-appears where it does.)*
+RunBlocked signal be captured — is §17. Iteration 9 — should
+context-insufficient be classified from backend observations rather than
+agent text — is §18. The Execution telemetry section between §16 and §17
+is a focused enhancement done chronologically between Iterations 6 and
+7, not an iteration itself — see its own note on why it appears where it
+does.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -90,6 +92,9 @@ src/
                     @anthropic-ai/claude-agent-sdk — see §15 below.
                     Iteration 8: a standing BLOCKED: convention and a
                     real RunBlocked translation path — see §17 below.
+                    Iteration 9: RunBlocked classification moved to a
+                    backend classifier reading real toolResults — see
+                    §18 below.
   mcp/               Iteration 3: MCP grant construction and enforcement
                     (§9.5) over two grant-checked tool wrappers — see §12
                     below. Iteration 7: getAncestry's result is now
@@ -100,13 +105,14 @@ src/
                     (§10.4) — see §13 below. Iteration 5:
                     gh-cli-vcs-provider.ts, a real GitHub-backed
                     VcsProvider — see §14 below.
-  cli/              Eight scripts: migrate, import, verify, serve,
+  cli/              Nine scripts: migrate, import, verify, serve,
                     verify-github (Iteration 5), verify-claude-adapter
                     (Iteration 6), investigate-ancestry-disclosure
-                    (Iteration 7), investigate-run-blocked (Iteration 8)
-                    — none of the verify-*/investigate-* scripts are
-                    part of npm test.
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16/§17 below,
+                    (Iteration 7), investigate-run-blocked (Iteration 8,
+                    updated Iteration 9), investigate-blocked-relevance
+                    (Iteration 9) — none of the verify-*/investigate-*
+                    scripts are part of npm test.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16/§17/§18 below,
                     plus execution-telemetry.test.ts (see "Execution telemetry" below).
 ```
 
@@ -254,7 +260,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 138 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 142 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -850,6 +856,81 @@ is a terminal signal, not a replacement for genuine explanation.
 any Orchestrator-side reaction to a received `RunBlocked` event;
 `ArtifactProduced` and the real output path — the one `RunEvent` kind
 that remains entirely untested against a real agent.
+
+## 18. Iteration 9: should `context-insufficient` be classified from backend observations rather than agent text?
+
+Full detail in `docs/history/iteration-9/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`. Follows directly from two architecture reviews between
+Iterations 8 and 9, both of which extended `docs/MVP_ARCHITECTURE_V2.md`
+R-1 to workflow-state classification: Nexus, not agent-authored text,
+determines a `RunEvent`'s kind and reason wherever a deterministic
+classifier exists.
+
+### 18.1 What this validates, and what it does not
+
+Two separable claims, kept separate on purpose. **Validated**: the
+classification *mechanism* — `RunBlocked` (reason `context-insufficient`)
+can be, and now is, derived from a run's real `toolResults` directly,
+confirmed by a live run where the backend observation demonstrably
+decided the outcome independent of the agent's own text. **Invalidated**:
+the specific rule this iteration implemented for *when* to apply that
+mechanism — "any observed refusal, unconditionally, means blocked" — is
+real, demonstrated too coarse. A live run showed a real agent correctly
+completing its task after a refusal on an explicitly optional,
+not-required check, and the backend classifier marked the run blocked
+anyway. See `docs/history/iteration-9/REPORT.md` § "The three live runs,
+in full."
+
+### 18.2 `src/runtime/adapters/claude-sdk.ts` — where classification now lives
+
+`mapMessage()` (single-message, pure) no longer handles `result` messages
+at all — confirmed by a dedicated test. `classifyResultMessage(message,
+toolResults)`, called directly from `events()` (which already holds the
+accumulated `toolResults` record in scope), makes the decision instead:
+a real `GrantRefusedError` observed anywhere in the run
+(`toolResults.some(r => r.isError)`) is authoritative and produces
+`RunBlocked` before the `BLOCKED:` text convention (Iteration 8) is even
+consulted. The convention remains, unchanged in behavior, as the sole
+fallback for a run where the backend has no deterministic signal —
+`architecture-change-required` and `mapping-missing` still route through
+it entirely, since neither is discoverable with today's two MCP tools.
+
+`docs/history/iteration-9/SCOPE.md` described also threading
+`GrantRefusedError`'s own typed `reason` (`"expired" | "out-of-grant"`)
+through `toolResults`; implementing it found this unnecessary — `isError`
+alone is already unambiguous, both reasons map to the same
+`RunBlockedReason`, and the SDK's `tool()` handler signature has no
+reliable typed way to correlate a handler call back to its own
+`tool_use_id`. Dropped, disclosed directly in the code, not forced
+through to match the scope document exactly.
+
+### 18.3 `src/cli/investigate-blocked-relevance.ts` — not part of `npm test`
+
+```
+npm run investigate:blocked-relevance   # requires an authenticated claude CLI
+```
+
+Seeds a task fully completable from one in-grant component alone, with a
+second, related component offered honestly as an optional, not-required
+check. The first framing tested ("entirely optional, skip if you like")
+produced an agent that correctly never attempted it — a real, valid
+result, but not evidence about over-triggering. A smaller rewording
+("worth checking as a matter of good practice... not required"), same
+underlying facts, was enough to produce a real refusal the agent
+correctly judged irrelevant — and the backend classifier blocked the run
+anyway. `investigate-run-blocked.ts` (Iteration 8's own scenario) was
+also updated this iteration to report *which* path — backend observation
+or text fallback — actually produced a given run's classification, not
+only that the correct event resulted.
+
+### 18.4 Deliberately not built
+
+A refined backend signal that avoids the demonstrated over-triggering —
+named as the immediate next question in `docs/PROJECT_KNOWLEDGE.md`
+Unproven, not designed here; `architecture-change-required` and
+`mapping-missing` backend classifiers (no discoverable mechanism yet);
+Repository MCP; any new MCP tool; the Orchestrator; a general-purpose
+workflow-state framework or rules engine; `proposalDraft` population.
 
 ## Execution telemetry
 
