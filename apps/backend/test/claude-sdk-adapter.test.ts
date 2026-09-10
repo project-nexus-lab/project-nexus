@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPrompt, mapMessage } from "../src/runtime/adapters/claude-sdk.js";
+import { buildPrompt, mapMessage, parseBlockedSignal } from "../src/runtime/adapters/claude-sdk.js";
 import type { RunEvent } from "../src/runtime/port.js";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -62,6 +62,14 @@ test("buildPrompt degrades gracefully when the opaque payload is missing expecte
   assert.match(prompt, /\(none\)/);
 });
 
+test("buildPrompt always includes the BLOCKED: convention (Iteration 8) — a standing protocol instruction, present with or without acceptanceCriteria", () => {
+  assert.match(buildPrompt({ task: "task.iter8-example" }), /BLOCKED: context-insufficient/);
+  assert.match(
+    buildPrompt({ task: "task.iter8-example", acceptanceCriteria: ["do the thing"] }),
+    /BLOCKED: context-insufficient/,
+  );
+});
+
 test("mapMessage: an assistant message calling a Nexus MCP tool maps to ContextRequested", () => {
   const event = mapMessage(
     assistantMessage([{ type: "tool_use", name: "mcp__nexus__getAncestry" }]),
@@ -84,6 +92,26 @@ test("mapMessage: a successful, non-error result maps to RunCompleted", () => {
   assert.deepEqual(event, { kind: "RunCompleted" });
 });
 
+test("mapMessage: a successful result matching the BLOCKED: convention maps to RunBlocked, not RunCompleted (Iteration 8)", () => {
+  const text = "Some findings.\n\nBLOCKED: context-insufficient — needed to see comp.two-hops-away but was refused.";
+  const event = mapMessage(resultMessage({ subtype: "success", is_error: false, result: text }));
+  assert.deepEqual(event, { kind: "RunBlocked", reason: "context-insufficient" });
+});
+
+test("parseBlockedSignal: matches the exact convention and captures the note", () => {
+  const parsed = parseBlockedSignal("Report.\nBLOCKED: context-insufficient — could not access the dependency.");
+  assert.deepEqual(parsed, { note: "could not access the dependency." });
+});
+
+test("parseBlockedSignal: an ordinary mention of the word blocked does not match — the convention is an exact line, not a loose keyword search", () => {
+  assert.equal(parseBlockedSignal("Nothing here is blocked, everything worked fine."), null);
+  assert.equal(parseBlockedSignal("blocked: context-insufficient — wrong case, must not match"), null);
+});
+
+test("parseBlockedSignal: returns null for text with no signal at all", () => {
+  assert.equal(parseBlockedSignal("A normal, complete answer with no issues."), null);
+});
+
 test("mapMessage: a result with is_error true maps to RunFailed carrying the result text", () => {
   const event = mapMessage(resultMessage({ subtype: "success", is_error: true, result: "the API call failed" }));
   assert.deepEqual(event, { kind: "RunFailed", message: "the API call failed" });
@@ -102,7 +130,12 @@ test("mapMessage: every other SDK message kind (system, user, rate_limit_event, 
   assert.equal(mapMessage({ type: "rate_limit_event" } as unknown as SDKMessage), null);
 });
 
-test("RunBlocked remains a shape events()'s declared return type (RunEvent) accepts — a structural check only, not a claim mapMessage ever produces one from a real run (docs/history/iteration-6/SCOPE.md §4 item 7)", () => {
-  const blocked: RunEvent = { kind: "RunBlocked", reason: "architecture-change-required" };
-  assert.equal(blocked.kind, "RunBlocked");
+test("RunBlocked with reason architecture-change-required or mapping-missing remains a shape RunEvent accepts, but mapMessage has no path that ever produces either (Iteration 8 SCOPE.md §2 — neither is discoverable with today's two MCP tools) — a structural check only", () => {
+  const architectureChange: RunEvent = { kind: "RunBlocked", reason: "architecture-change-required" };
+  const mappingMissing: RunEvent = { kind: "RunBlocked", reason: "mapping-missing" };
+  assert.equal(architectureChange.kind, "RunBlocked");
+  assert.equal(mappingMissing.kind, "RunBlocked");
+  // context-insufficient is the one reason mapMessage can actually
+  // produce as of Iteration 8 — see the dedicated test above, which
+  // exercises it for real rather than merely checking the type accepts it.
 });

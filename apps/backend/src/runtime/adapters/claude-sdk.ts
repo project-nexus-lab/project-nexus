@@ -281,6 +281,13 @@ export function buildPrompt(workPackage: OpaqueWorkPackage): string {
     `This run's Work Package affects capabilities: ${capabilities.join(", ") || "(none)"}.`,
     `It affects components: ${components.join(", ") || "(none)"}.`,
     "You have exactly two tools available: getAncestry and getCapabilitiesOf.",
+    // A standing protocol instruction (Iteration 8,
+    // docs/history/iteration-8/SCOPE.md), not a per-task acceptance
+    // criterion — this is how role.implementer should always behave when
+    // genuinely blocked, the same way a real system prompt built from
+    // runtime.adapter_registration.config (§12.7) would carry it, not
+    // something scenario-specific.
+    'If a tool call is refused because its target is outside this run\'s grant, and you judge that information genuinely necessary to complete this task correctly, do not guess or work around it. End your entire response with exactly one line, verbatim: BLOCKED: context-insufficient — <one sentence explaining what you needed and could not access>. Do not include this line unless you were actually refused and genuinely could not proceed without the refused information.',
   ];
   // The real WorkPackagePayload field (`src/workpackage/build.ts`) this
   // run's actual instructions belong in — not a side channel invented for
@@ -301,6 +308,24 @@ export function buildPrompt(workPackage: OpaqueWorkPackage): string {
 }
 
 /**
+ * Iteration 8 (`docs/history/iteration-8/SCOPE.md`): the standing
+ * `BLOCKED:` convention `buildPrompt()` now always includes. Deliberately
+ * a plain, exact-match line, not free-form parsing of "does this text
+ * sound like a refusal" — a looser match would risk classifying an
+ * ordinary mention of the word "blocked" as a real signal. Only
+ * `context-insufficient` is parsed; `architecture-change-required` and
+ * `mapping-missing` are not discoverable with the two MCP tools this
+ * project has (see SCOPE.md §2), so this function has no path that
+ * produces them.
+ */
+const BLOCKED_LINE = /^BLOCKED: context-insufficient — (.+)$/m;
+
+export function parseBlockedSignal(text: string): { note: string } | null {
+  const match = BLOCKED_LINE.exec(text);
+  return match && match[1] ? { note: match[1].trim() } : null;
+}
+
+/**
  * The actual, checked answer to part of §1: most of what
  * `@anthropic-ai/claude-agent-sdk` emits (system/init, rate-limit events,
  * the tool_result carried on a `user` message, every intermediate
@@ -310,7 +335,10 @@ export function buildPrompt(workPackage: OpaqueWorkPackage): string {
  * once a real runtime exists to translate. `ContextRequested` is emitted
  * when the agent calls either Nexus MCP tool — a real, observed
  * translation (see the Report's probe transcripts), not a guess at what
- * the event ought to mean.
+ * the event ought to mean. `RunBlocked` (Iteration 8) is emitted when the
+ * terminal result matches the `BLOCKED:` convention above — the first
+ * path this function has ever had toward that event kind; every other
+ * path here predates this iteration and is unchanged.
  */
 export function mapMessage(message: SDKMessage): RunEvent | null {
   if (message.type === "assistant") {
@@ -322,6 +350,8 @@ export function mapMessage(message: SDKMessage): RunEvent | null {
 
   if (message.type === "result") {
     if (message.subtype === "success" && !message.is_error) {
+      const blocked = parseBlockedSignal(message.result);
+      if (blocked) return { kind: "RunBlocked", reason: "context-insufficient" };
       return { kind: "RunCompleted" };
     }
     const detail = message.subtype === "success" ? message.result : message.errors.join("; ") || message.subtype;
