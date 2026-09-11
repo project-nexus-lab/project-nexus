@@ -466,10 +466,6 @@ function check(name: string, actual: unknown, expected: unknown): void {
   }
 }
 
-function sortedIds<T extends { component_id?: string; capability_id?: string }>(rows: T[], key: "component_id" | "capability_id"): string[] {
-  return rows.map((r) => r[key]!).sort();
-}
-
 function jsAncestryChain(g: GeneratedGraph, id: string): Array<{ id: string; kind: string; name: string; depth: number }> {
   const out: Array<{ id: string; kind: string; name: string; depth: number }> = [];
   let cur: string | null = id;
