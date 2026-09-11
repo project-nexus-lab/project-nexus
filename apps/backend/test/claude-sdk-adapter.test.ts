@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPrompt, classifyResultMessage, mapMessage, parseBlockedSignal } from "../src/runtime/adapters/claude-sdk.js";
+import {
+  buildPrompt,
+  classifyResultMessage,
+  mapMessage,
+  parseBlockedSignal,
+  parseRelatedElements,
+  type RelatedElement,
+} from "../src/runtime/adapters/claude-sdk.js";
 import type { RunEvent } from "../src/runtime/port.js";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -36,6 +43,11 @@ function asResultMessage(fields: Record<string, unknown>): Extract<SDKMessage, {
 
 function toolResults(...isErrorFlags: boolean[]): Array<{ isError: boolean }> {
   return isErrorFlags.map((isError) => ({ isError }));
+}
+
+/** Same shape `events()` actually produces since Iteration 11 — each result carries the element id its own call targeted. */
+function toolResultsWithElements(...entries: Array<[elementId: string, isError: boolean]>): Array<{ isError: boolean; elementId: string }> {
+  return entries.map(([elementId, isError]) => ({ elementId, isError }));
 }
 
 test("buildPrompt names the task and lists affected capabilities and components", () => {
@@ -128,6 +140,94 @@ test("classifyResultMessage: no toolResults refusal and no BLOCKED: text maps to
     toolResults(false, false, false),
   );
   assert.deepEqual(event, { kind: "RunCompleted" });
+});
+
+// --- Iteration 11: relatedElements-driven classification ---------------
+
+const RELATED: RelatedElement[] = [
+  { elementId: "comp.iter8-upstream", required: true },
+  { elementId: "comp.iter9-related", required: false },
+];
+
+test("classifyResultMessage: with relatedElements declared, a refusal for a required element still maps to RunBlocked, with no BLOCKED: text at all", () => {
+  const event = classifyResultMessage(
+    asResultMessage({ subtype: "success", is_error: false, result: "A completely normal-sounding final answer." }),
+    toolResultsWithElements(["comp.iter8-upstream", true]),
+    RELATED,
+  );
+  assert.deepEqual(event, { kind: "RunBlocked", reason: "context-insufficient" });
+});
+
+test("classifyResultMessage: with relatedElements declared, a refusal for an element declared optional does NOT map to RunBlocked from this rule — falls through to RunCompleted when the agent also says nothing", () => {
+  const event = classifyResultMessage(
+    asResultMessage({ subtype: "success", is_error: false, result: "Readiness confirmed. No code changes proposed." }),
+    toolResultsWithElements(["comp.iter9-related", true]),
+    RELATED,
+  );
+  assert.deepEqual(event, { kind: "RunCompleted" });
+});
+
+test("classifyResultMessage: with relatedElements declared, a refusal for an element the Work Package never named at all does not map to RunBlocked either", () => {
+  const event = classifyResultMessage(
+    asResultMessage({ subtype: "success", is_error: false, result: "All good." }),
+    toolResultsWithElements(["comp.totally-unnamed", true]),
+    RELATED,
+  );
+  assert.deepEqual(event, { kind: "RunCompleted" });
+});
+
+test("classifyResultMessage: with relatedElements declared, an optional-element refusal still falls through to the BLOCKED: text fallback if present", () => {
+  const text = "Some findings.\n\nBLOCKED: context-insufficient — needed something else entirely.";
+  const event = classifyResultMessage(
+    asResultMessage({ subtype: "success", is_error: false, result: text }),
+    toolResultsWithElements(["comp.iter9-related", true]),
+    RELATED,
+  );
+  assert.deepEqual(event, { kind: "RunBlocked", reason: "context-insufficient" });
+});
+
+test("classifyResultMessage: relatedElements empty (the default) reproduces Iteration 9's own unconditional rule exactly — same call, third argument omitted", () => {
+  const event = classifyResultMessage(
+    asResultMessage({ subtype: "success", is_error: false, result: "Looks fine." }),
+    toolResultsWithElements(["comp.iter9-related", true]),
+  );
+  assert.deepEqual(event, { kind: "RunBlocked", reason: "context-insufficient" });
+});
+
+test("classifyResultMessage: a toolResults entry with no elementId at all (e.g. a call whose input carried neither elementId nor componentId) never matches a required entry", () => {
+  const event = classifyResultMessage(
+    asResultMessage({ subtype: "success", is_error: false, result: "Fine." }),
+    [{ isError: true }],
+    RELATED,
+  );
+  assert.deepEqual(event, { kind: "RunCompleted" });
+});
+
+test("parseRelatedElements: reads elementId/required pairs off the opaque payload", () => {
+  const parsed = parseRelatedElements({
+    relatedElements: [
+      { elementId: "comp.a", required: true },
+      { elementId: "comp.b", required: false },
+    ],
+  });
+  assert.deepEqual(parsed, [
+    { elementId: "comp.a", required: true },
+    { elementId: "comp.b", required: false },
+  ]);
+});
+
+test("parseRelatedElements: absent field, wrong shape, or malformed entries degrade to an empty list rather than throwing", () => {
+  assert.deepEqual(parseRelatedElements({}), []);
+  assert.deepEqual(parseRelatedElements({ relatedElements: "not an array" }), []);
+  assert.deepEqual(parseRelatedElements({ relatedElements: [{ required: true }, null, "x", { elementId: "" }] }), []);
+});
+
+test("parseRelatedElements: required defaults to false when the field is present but not literally true", () => {
+  const parsed = parseRelatedElements({ relatedElements: [{ elementId: "comp.a" }, { elementId: "comp.b", required: "yes" }] });
+  assert.deepEqual(parsed, [
+    { elementId: "comp.a", required: false },
+    { elementId: "comp.b", required: false },
+  ]);
 });
 
 test("parseBlockedSignal: matches the exact convention and captures the note", () => {

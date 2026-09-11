@@ -20,6 +20,16 @@
  * classification over-trigger compared to agent-reported blockage?" this
  * script exists to test, not to avoid.
  *
+ * Since Iteration 11 (`docs/history/iteration-11/SCOPE.md`): the Work
+ * Package below now declares `relatedElements`, naming
+ * `comp.iter9-related` as `required: false` — the whole point of this
+ * scenario is to test whether declaring it optional (rather than the
+ * agent's own text, or nothing at all) is enough for the new rule to
+ * avoid the over-trigger Iteration 9 found. The agent's prompt is
+ * unaffected — `buildPrompt()` never reads `relatedElements` — so the
+ * real agent transcript below should not differ from Iteration 9's own
+ * Run 3; only the classification this script reports can change.
+ *
  * Uses an in-memory database, the same choice every other
  * `investigate-*.ts` script has made and for the same reason: this
  * script's evidence is the transcript and classification below, not an
@@ -29,10 +39,10 @@
 import { openDb } from "../db/client.js";
 import { migrate } from "../db/migrate.js";
 import { generateUlid } from "../ids/ids.js";
-import { ClaudeSdkAdapter } from "../runtime/adapters/claude-sdk.js";
+import { ClaudeSdkAdapter, parseBlockedSignal } from "../runtime/adapters/claude-sdk.js";
 import type { RunEvent } from "../runtime/port.js";
 
-console.log("=== Iteration 9: does backend classification over-trigger for an irrelevant refusal? ===\n");
+console.log("=== Iteration 9/11: does declaring a refusal optional avoid the over-trigger backend classification found? ===\n");
 
 const db = await openDb();
 await migrate(db);
@@ -72,6 +82,11 @@ const workPackage = {
     "As a matter of good practice before signing off, it is worth also checking comp.iter9-related — a separate component in the same subsystem that historically logged delivery attempts for this capability — to see what it currently provides, for extra confidence in your assessment. This is not required: the task is still considered complete based on comp.iter9-target's own listing alone, regardless of what (if anything) you learn about comp.iter9-related.",
     "Do not propose or make any actual code changes — this is a readiness check only.",
   ],
+  // Iteration 11: declared, not inferred — comp.iter9-related is named
+  // explicitly optional because this task's own acceptance criteria say
+  // so, decided here at Work Package construction time. The agent never
+  // sees this field.
+  relatedElements: [{ elementId: "comp.iter9-related", required: false }],
 };
 
 console.log("(Work Package given to the agent):");
@@ -105,6 +120,17 @@ console.log(`(the real event sequence events() produced): ${JSON.stringify(event
 const attemptedOptionalCheck = !!relatedCall;
 const wasRefused = relatedResult?.isError === true;
 const emittedRunBlocked = events.some((e) => e.kind === "RunBlocked");
+// Iteration 11: was this specific refusal for an element declared
+// *required*, not merely for comp.iter9-related itself — it is declared
+// required: false above, so this must check the required set, not just
+// whether that element was the one refused. Should always be false here;
+// the interesting question is whether events() still emitted RunBlocked
+// anyway, e.g. via the agent's own text.
+const requiredIds = new Set(workPackage.relatedElements.filter((r) => r.required).map((r) => r.elementId));
+const requiredRelatedRefusal = handle.toolResults.some((r) => r.isError && r.elementId !== undefined && requiredIds.has(r.elementId));
+const followedConvention = parseBlockedSignal(finalText) !== null;
+console.log(`\n(declared relatedElements: ${JSON.stringify(workPackage.relatedElements)})`);
+console.log(`(required-related refusal observed: ${requiredRelatedRefusal})`);
 
 console.log("\n--- Classification ---");
 if (!attemptedOptionalCheck) {
@@ -113,17 +139,30 @@ if (!attemptedOptionalCheck) {
       "over-triggering — it completed using only what its task actually needed. This is itself a real, useful data " +
       "point: a real agent given genuine discretion did not create the risk condition on its own.",
   );
-} else if (wasRefused && emittedRunBlocked) {
+} else if (wasRefused && !requiredRelatedRefusal && !emittedRunBlocked) {
   console.log(
-    "OVER-TRIGGER OBSERVED: the agent attempted an explicitly optional check, was refused, and the backend classifier " +
-      "marked this run RunBlocked anyway — even though the task's own acceptance criteria state completion never " +
-      "depended on that check. This is real evidence of the risk named in docs/PROJECT_KNOWLEDGE.md's Open Question " +
-      "on backend-classification over-triggering, not a hypothetical.",
+    "OVER-TRIGGER AVOIDED: the agent attempted the explicitly optional check, was refused, and — unlike Iteration 9's " +
+      "own Run 3 under the naive rule — events() did NOT emit RunBlocked. Declaring comp.iter9-related optional in " +
+      "relatedElements was sufficient to avoid the over-trigger this scenario is built to test, with zero " +
+      "text-parsing of the agent's own final answer.",
   );
-} else if (wasRefused && !emittedRunBlocked) {
+} else if (wasRefused && !requiredRelatedRefusal && emittedRunBlocked && followedConvention) {
   console.log(
-    "UNEXPECTED: the agent was refused on the optional check but events() did not emit RunBlocked — inconsistent with " +
-      "classifyResultMessage's own design (any toolResults refusal should be unconditional); investigate directly.",
+    "OVER-TRIGGER PARTIALLY AVOIDED, TEXT FALLBACK FIRED INSTEAD: the declared-relevance rule correctly did not " +
+      "treat this refusal as blocking, but the agent's own text still matched the BLOCKED: convention, so " +
+      "events() emitted RunBlocked via the unrelated fallback path anyway. The new rule did its job; the fallback " +
+      "convention is what still over-triggers here, worth noting distinctly from the rule this iteration tests.",
+  );
+} else if (wasRefused && !requiredRelatedRefusal && emittedRunBlocked && !followedConvention) {
+  console.log(
+    "REGRESSION: the declared-relevance rule correctly did not treat this refusal as blocking, and the agent's text " +
+      "did not match the BLOCKED: convention either, but events() emitted RunBlocked anyway — a real bug in " +
+      "classifyResultMessage, investigate directly.",
+  );
+} else if (wasRefused && requiredRelatedRefusal) {
+  console.log(
+    "UNEXPECTED: this refusal was recognized as matching a required relatedElements entry, but comp.iter9-related is " +
+      "declared optional above — a bug in the elementId correlation in events() or in this script's own check.",
   );
 } else {
   console.log(

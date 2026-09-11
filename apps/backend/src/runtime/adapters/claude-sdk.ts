@@ -55,6 +55,14 @@ import type {
  * classification). The `BLOCKED:` convention Iteration 8 built is kept,
  * not deleted — it remains the fallback for a run where the backend has
  * no deterministic signal to classify from.
+ *
+ * Since Iteration 9 closed: when the Work Package declares
+ * `relatedElements` (Iteration 11, `docs/history/iteration-11/SCOPE.md`),
+ * a refusal is authoritative for `RunBlocked` only if its element is
+ * declared `required` — refining Iteration 9's own unconditional "any
+ * refusal ⇒ blocked" rule, which remains exactly as it was for a Work
+ * Package that declares nothing. See `classifyResultMessage` and
+ * `parseRelatedElements` below.
  */
 
 /**
@@ -105,8 +113,26 @@ export interface ClaudeSdkAdapterHandle extends AdapterHandle {
    * a handler invocation back to its own `tool_use_id` without relying on
    * an untyped value — a disclosed simplification from the scope, not a
    * silent one; see `docs/history/iteration-9/REPORT.md`.
+   *
+   * Since Iteration 11: each entry also carries `elementId` — the target
+   * of the *call* that produced this result, correlated from `toolCalls`
+   * by `tool_use_id` at push time, not parsed from `text`. This is what
+   * `classifyResultMessage` reads (alongside `relatedElements`, below) to
+   * decide whether a specific refusal was for a declared-required element,
+   * without ever inspecting the agent's own free-form output.
    */
-  toolResults: Array<{ toolUseId: string; isError: boolean; text: string }>;
+  toolResults: Array<{ toolUseId: string; isError: boolean; text: string; elementId?: string }>;
+  /**
+   * Iteration 11 (`docs/history/iteration-11/SCOPE.md`): the Work
+   * Package's own declared `relatedElements` field, parsed at `start()`
+   * time by `parseRelatedElements()` — elements outside the resolved/
+   * granted scope the task may need, each tagged `required` or not.
+   * Empty for a Work Package that declares nothing (every Work Package
+   * before this iteration, and every existing test fixture), in which
+   * case `classifyResultMessage` falls back to Iteration 9's own
+   * unconditional "any refusal ⇒ blocked" rule unchanged.
+   */
+  relatedElements: RelatedElement[];
   /**
    * Telemetry inputs gathered at `start()` time, carried through to the
    * single `recordRunTelemetry` call in `events()`'s `finally` block (see
@@ -150,6 +176,7 @@ export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
       query: q,
       toolCalls: [],
       toolResults: [],
+      relatedElements: parseRelatedElements(workPackage),
       telemetryStartedAt: new Date(),
       telemetryWorkPackageId: grant.workPackageId,
       telemetryContext: deriveWorkPackageContextFacts(workPackage),
@@ -178,10 +205,23 @@ export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
         if (message.type === "user" && Array.isArray(message.message?.content)) {
           for (const block of message.message.content) {
             if (block.type === "tool_result") {
+              // Iteration 11: correlate back to the call this result
+              // answers (already recorded above, since the assistant's
+              // tool_use message always precedes the matching user
+              // tool_result message in the stream) to learn which element
+              // this specific result — success or refusal — was actually
+              // for. Read from the call's own input, not parsed from this
+              // result's text.
+              const call = h.toolCalls.find((c) => c.id === block.tool_use_id);
+              const elementId = call
+                ? (call.input as { elementId?: string; componentId?: string }).elementId ??
+                  (call.input as { elementId?: string; componentId?: string }).componentId
+                : undefined;
               h.toolResults.push({
                 toolUseId: block.tool_use_id,
                 isError: block.is_error === true,
                 text: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
+                ...(elementId !== undefined ? { elementId } : {}),
               });
             }
           }
@@ -192,7 +232,7 @@ export class ClaudeSdkAdapter implements AgentRuntimeAdapter {
         // pure, single-message function structurally cannot have. See
         // classifyResultMessage's own doc comment for what changed and why.
         if (message.type === "result") {
-          const classified = classifyResultMessage(message, h.toolResults);
+          const classified = classifyResultMessage(message, h.toolResults, h.relatedElements);
           if (classified) yield classified;
           continue;
         }
@@ -369,32 +409,86 @@ export function parseBlockedSignal(text: string): { note: string } | null {
 }
 
 /**
+ * Iteration 11 (`docs/history/iteration-11/SCOPE.md`): one entry in the
+ * Work Package's own declared `relatedElements` field — an element
+ * outside the resolved/granted scope a task may need, tagged whether it
+ * is actually required. Read from the opaque payload by
+ * `parseRelatedElements`, below; never derived from graph proximity or
+ * agent text — both were considered while scoping this iteration and
+ * found structurally unworkable (see the scope document's "What We
+ * Know": a refusal is, by construction, always for an element outside
+ * `McpGrant`'s own widening radius, so "how graph-close is it" can never
+ * distinguish a real refusal from another).
+ */
+export interface RelatedElement {
+  elementId: string;
+  required: boolean;
+}
+
+/**
+ * Deliberately generic reads off the opaque payload, the same discipline
+ * `buildPrompt()` already applies to `capabilities`/`components`/
+ * `acceptanceCriteria` — `relatedElements` is additive and optional;
+ * absent (every Work Package before this iteration, and every existing
+ * test fixture) is not an error, just an empty list, which makes
+ * `classifyResultMessage` fall back to Iteration 9's own unconditional
+ * rule unchanged.
+ */
+export function parseRelatedElements(workPackage: OpaqueWorkPackage): RelatedElement[] {
+  const raw = workPackage.relatedElements;
+  if (!Array.isArray(raw)) return [];
+  const out: RelatedElement[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const elementId = (entry as { elementId?: unknown }).elementId;
+    if (typeof elementId !== "string" || elementId.length === 0) continue;
+    out.push({ elementId, required: (entry as { required?: unknown }).required === true });
+  }
+  return out;
+}
+
+/**
  * Iteration 9 (`docs/history/iteration-9/SCOPE.md`): classifies the
  * terminal SDK `result` message into a `RunEvent`, given the run's real,
  * accumulated `toolResults` — the actual answer to the architecture
  * review's question, "should `context-insufficient` be classified from
  * backend observations rather than agent-authored text?"
  *
- * A real `GrantRefusedError` observed anywhere during the run
- * (`toolResults.some(r => r.isError)`) is authoritative: it produces
- * `RunBlocked` unconditionally, before the `BLOCKED:` text convention is
- * even consulted. `GrantRefusedError` is the only thing that ever
- * produces `isError: true` here today, so this check needs no further
- * disambiguation. Per `docs/MVP_ARCHITECTURE_V2.md` R-1's extension to
- * workflow-state classification: when a deterministic classifier exists,
- * it wins over an agent-reported signal, not the other way around.
+ * Since Iteration 11 (`docs/history/iteration-11/SCOPE.md`): when the
+ * Work Package declares `relatedElements`, a refusal is authoritative
+ * for `RunBlocked` only if its own `elementId` (correlated from
+ * `toolCalls` by `events()`, not parsed from any text) matches a
+ * declared entry with `required: true`. A refusal for an element the
+ * Work Package never named, or named as optional, does not classify
+ * `RunBlocked` from this rule — it falls through to the `BLOCKED:` text
+ * convention exactly as it would if no refusal had occurred at all. When
+ * `relatedElements` is empty — every Work Package before this iteration,
+ * and every existing hermetic test fixture — behavior is byte-for-byte
+ * Iteration 9's own rule: any observed refusal
+ * (`toolResults.some(r => r.isError)`) is authoritative, unconditionally.
+ * Per `docs/MVP_ARCHITECTURE_V2.md` R-1's extension to workflow-state
+ * classification: when a deterministic classifier exists, it wins over
+ * an agent-reported signal, not the other way around — this is true of
+ * both rules below, not only the older one.
  *
- * Whether "any refusal ⇒ blocked" over-triggers for a refusal the agent
- * successfully worked around is exactly what this iteration's live
+ * Whether `relatedElements`, hand-populated the same way
+ * `investigate-*.ts` scripts already hand-populate `acceptanceCriteria`,
+ * actually distinguishes a task-blocking refusal from one the agent
+ * legitimately worked around is exactly what this iteration's live
  * scenarios test — not assumed correct by this function's own existence.
- * See `docs/history/iteration-9/REPORT.md`.
+ * See `docs/history/iteration-11/REPORT.md`.
  */
 export function classifyResultMessage(
   message: Extract<SDKMessage, { type: "result" }>,
-  toolResults: ReadonlyArray<{ isError: boolean }>,
+  toolResults: ReadonlyArray<{ isError: boolean; elementId?: string }>,
+  relatedElements: ReadonlyArray<RelatedElement> = [],
 ): RunEvent {
   if (message.subtype === "success" && !message.is_error) {
-    if (toolResults.some((r) => r.isError)) {
+    if (relatedElements.length > 0) {
+      const requiredIds = new Set(relatedElements.filter((r) => r.required).map((r) => r.elementId));
+      const requiredRefusal = toolResults.some((r) => r.isError && r.elementId !== undefined && requiredIds.has(r.elementId));
+      if (requiredRefusal) return { kind: "RunBlocked", reason: "context-insufficient" };
+    } else if (toolResults.some((r) => r.isError)) {
       return { kind: "RunBlocked", reason: "context-insufficient" };
     }
     const blocked = parseBlockedSignal(message.result);

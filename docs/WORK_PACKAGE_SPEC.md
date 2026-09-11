@@ -41,6 +41,22 @@ acceptanceCriteria:
 decisions:
   - adr.discount-strategy-v1
 
+relatedElements:
+  - elementId: comp.upstream-service
+    required: true
+
+---
+
+`relatedElements` (Iteration 11, `docs/history/iteration-11/SCOPE.md`):
+optional. Elements outside the Work Package's own resolved/granted scope
+that the task may still need, each tagged whether Nexus should treat a
+refusal on it as blocking. Declared at Work Package construction time —
+not inferred from a run, and not something an agent runtime ever writes
+or reads directly. As of Iteration 11, `buildWorkPackage()` does not yet
+populate this field from the graph; it exists so a runtime adapter can
+classify `RunBlocked` from declared relevance when the field is present,
+falling back to prior behavior when it is absent.
+
 ---
 
 ## Context Construction

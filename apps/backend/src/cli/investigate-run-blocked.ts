@@ -15,6 +15,16 @@
  * actually produced `RunBlocked` — acceptance criterion 1 requires this
  * be shown precisely, not merely that the same event resulted.
  *
+ * Since Iteration 11 (`docs/history/iteration-11/SCOPE.md`): the Work
+ * Package below now declares `relatedElements`, naming
+ * `comp.iter8-upstream` as `required: true` — the same real refusal this
+ * scenario has always produced, now also checked against the new,
+ * declared-relevance rule, not only the naive "any refusal" rule Iteration
+ * 9 built. The agent's prompt is unaffected — `buildPrompt()` never reads
+ * `relatedElements` — so the real agent transcript below should not
+ * differ from any prior run of this same scenario; only which rule(s)
+ * this script reports as having decided the classification can change.
+ *
  * Uses an in-memory database, the same choice
  * `investigate-ancestry-disclosure.ts` made and for the same reason:
  * this script's evidence is the transcript and classification below, not
@@ -27,7 +37,7 @@ import { generateUlid } from "../ids/ids.js";
 import { ClaudeSdkAdapter, parseBlockedSignal } from "../runtime/adapters/claude-sdk.js";
 import type { RunEvent } from "../runtime/port.js";
 
-console.log("=== Iteration 8/9: can a real agent's RunBlocked signal be captured, and now via backend observation? ===\n");
+console.log("=== Iteration 8/9/11: can a real agent's RunBlocked signal be captured, via backend observation, and now via declared relevance? ===\n");
 
 const db = await openDb();
 await migrate(db);
@@ -74,6 +84,11 @@ const workPackage = {
     "If that call is refused, and you determine you cannot produce a reliable readiness assessment without knowing what comp.iter8-upstream provides, follow the BLOCKED convention rather than guessing or proceeding anyway.",
     "Do not propose or make any actual code changes — this is a readiness check only.",
   ],
+  // Iteration 11: declared, not inferred — comp.iter8-upstream is named
+  // required because this task's own acceptance criteria say so, decided
+  // here at Work Package construction time, not derived from anything
+  // observed during the run. The agent never sees this field.
+  relatedElements: [{ elementId: "comp.iter8-upstream", required: true }],
 };
 
 console.log("(Work Package given to the agent):");
@@ -117,6 +132,16 @@ if (blockedSignal) console.log(`(parsed BLOCKED note): ${blockedSignal.note}`);
 // — reconstructing here, from the same handle, what actually decided the
 // classification, independent of the agent's own text.
 const backendObservedRefusal = handle.toolResults.some((r) => r.isError);
+// Iteration 11: the same real refusal, checked against the new,
+// declared-relevance rule specifically — did the refused call's own
+// elementId (correlated by events(), not this script) match a required
+// entry declared above? Derived from workPackage.relatedElements itself,
+// not a hardcoded id, so this check means the same thing here as it does
+// in investigate-blocked-relevance.ts.
+const requiredIds = new Set(workPackage.relatedElements.filter((r) => r.required).map((r) => r.elementId));
+const requiredRelatedRefusal = handle.toolResults.some((r) => r.isError && r.elementId !== undefined && requiredIds.has(r.elementId));
+console.log(`\n(declared relatedElements: ${JSON.stringify(workPackage.relatedElements)})`);
+console.log(`(required-related refusal observed: ${requiredRelatedRefusal})`);
 
 console.log("\n--- Classification ---");
 if (!upstreamCall || !wasRefused) {
@@ -125,27 +150,31 @@ if (!upstreamCall || !wasRefused) {
       "actually refused, so this run produced no evidence either way about the RunBlocked mechanism. See " +
       "docs/history/iteration-9/REPORT.md for what this means for the scenario design.",
   );
-} else if (emittedRunBlocked && backendObservedRefusal) {
+} else if (requiredRelatedRefusal && emittedRunBlocked) {
   console.log(
-    "MECHANISM CONFIRMED, BACKEND PATH: h.toolResults recorded a real refusal, and events() emitted RunBlocked from that " +
-      `alone — independent of whether the agent's text matched the BLOCKED: convention (it ${followedConvention ? "also did" : "did NOT, and it did not need to"}). ` +
-      "This is acceptance criterion 1: the classification now originates from the backend observation, not agent text.",
+    "MECHANISM CONFIRMED, DECLARED-RELEVANCE PATH: the refused call's own elementId (comp.iter8-upstream) matched this " +
+      "Work Package's declared required entry, and events() emitted RunBlocked from that alone — independent of " +
+      `whether the agent's text matched the BLOCKED: convention (it ${followedConvention ? "also did" : "did NOT, and it did not need to"}). ` +
+      "This reproduces Iteration 9's own validated relevant-refusal outcome under the new, narrower rule — " +
+      "acceptance criterion 3's relevant-refusal half. For comparison, not as evidence of what actually decided " +
+      `this run: Iteration 9's now-superseded naive rule would also have fired here (backendObservedRefusal=${backendObservedRefusal}).`,
   );
-} else if (emittedRunBlocked && followedConvention) {
+} else if (requiredRelatedRefusal && !emittedRunBlocked) {
   console.log(
-    "MECHANISM CONFIRMED, FALLBACK PATH ONLY: events() emitted RunBlocked, but h.toolResults recorded no isError entry — " +
-      "the BLOCKED: text convention is what produced this classification, not the backend observation. Worth checking " +
-      "why the backend path did not fire for a call that was, per wasRefused above, genuinely refused.",
+    "REGRESSION: the refusal matched a declared required element, but events() did not emit RunBlocked — a real bug " +
+      "in classifyResultMessage or the elementId correlation in events(), not merely a missed signal.",
   );
-} else if (!emittedRunBlocked && backendObservedRefusal) {
+} else if (!requiredRelatedRefusal && emittedRunBlocked && followedConvention) {
   console.log(
-    "REGRESSION: h.toolResults recorded a real refusal but events() did not emit RunBlocked — a real bug in " +
-      "classifyResultMessage, not merely a missed agent signal.",
+    "UNEXPECTED, FALLBACK PATH ONLY: the declared-relevance rule did not recognize this refusal as matching " +
+      "comp.iter8-upstream (it should have), but the agent's own BLOCKED: text still drove RunBlocked. Investigate " +
+      "the elementId correlation in events() before trusting the new rule for this scenario.",
   );
 } else {
   console.log(
-    "AGENT DID NOT SIGNAL, AND NO BACKEND OBSERVATION: the agent was genuinely refused but neither the backend " +
-      "observation nor its own text produced a RunBlocked classification — worth investigating both paths.",
+    "UNEXPECTED: this scenario names comp.iter8-upstream as required and the tool was genuinely refused, but the " +
+      "declared-relevance rule did not recognize it and no text fallback caught it either — investigate the " +
+      "elementId correlation in events() and parseRelatedElements directly.",
   );
 }
 
