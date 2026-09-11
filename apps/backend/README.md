@@ -31,10 +31,11 @@ bound what an agent can learn — is §16. Iteration 8 — can a real agent's
 RunBlocked signal be captured — is §17. Iteration 9 — should
 context-insufficient be classified from backend observations rather than
 agent text — is §18. Iteration 10 — do the graph traversals hold up past
-toy scale — is §19. The Execution telemetry section between §16 and §17
-is a focused enhancement done chronologically between Iterations 6 and
-7, not an iteration itself — see its own note on why it appears where it
-does.)*
+toy scale — is §19. Iteration 11 — does declared relevance distinguish a
+task-blocking refusal from an irrelevant one — is §20. The Execution
+telemetry section between §16 and §17 is a focused enhancement done
+chronologically between Iterations 6 and 7, not an iteration itself —
+see its own note on why it appears where it does.)*
 
 | # | Deliverable | Where |
 |---|---|---|
@@ -95,7 +96,9 @@ src/
                     real RunBlocked translation path — see §17 below.
                     Iteration 9: RunBlocked classification moved to a
                     backend classifier reading real toolResults — see
-                    §18 below.
+                    §18 below. Iteration 11: classifyResultMessage also
+                    reads a declared relatedElements field — see §20
+                    below.
   mcp/               Iteration 3: MCP grant construction and enforcement
                     (§9.5) over two grant-checked tool wrappers — see §12
                     below. Iteration 7: getAncestry's result is now
@@ -110,11 +113,11 @@ src/
                     verify-github (Iteration 5), verify-claude-adapter
                     (Iteration 6), investigate-ancestry-disclosure
                     (Iteration 7), investigate-run-blocked (Iteration 8,
-                    updated Iteration 9), investigate-blocked-relevance
-                    (Iteration 9), investigate-graph-scale (Iteration 10)
-                    — none of the verify-*/investigate-* scripts are part
-                    of npm test.
-test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16/§17/§18 below,
+                    updated Iterations 9 and 11), investigate-blocked-relevance
+                    (Iteration 9, updated Iteration 11), investigate-graph-scale
+                    (Iteration 10) — none of the verify-*/investigate-*
+                    scripts are part of npm test.
+test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16/§17/§18/§20 below,
                     plus execution-telemetry.test.ts (see "Execution telemetry" below).
                     §19 (Iteration 10) adds no test/ file — its proof is
                     investigate-graph-scale.ts's own 1,158 correctness
@@ -265,7 +268,7 @@ Two layers, both runnable with no setup (no server, no Docker). From the
 
 ```
 npm install
-npm test              # delegates to this workspace — 142 node:test cases, the authoritative check
+npm test              # delegates to this workspace — 151 node:test cases, the authoritative check
 npm run verify         # delegates to this workspace — narrated walkthrough, same assertions, human-readable
 ```
 
@@ -998,6 +1001,60 @@ synthetic scale (10x/100x) — deferred until a concrete reason to expect
 it exists. Incremental architecture/feature authoring
 (`docs/PROJECT_KNOWLEDGE.md` Open Question #6) — unrelated, untouched,
 still explicitly not prioritized.
+
+## 20. Iteration 11: does declared relevance distinguish a task-blocking refusal from an irrelevant one?
+
+Full detail in `docs/history/iteration-11/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`. Answers Iteration 9's own paired Unproven entry: does a
+backend-derived signal exist that correctly distinguishes a
+task-blocking refusal from one the agent legitimately worked around,
+without any reliance on agent-authored text?
+
+### 20.1 What this validates, and what it does not
+
+**Validated**: a Work-Package-declared `relatedElements` field —
+`Array<{ elementId: string; required: boolean }>` — correctly classifies
+both of Iteration 9's own real scenarios simultaneously, confirmed by
+two live re-runs. **Not validated**: whether Work Package generation, or
+a future authoring tool, can populate this field correctly for a real
+task — this iteration's own two scenarios had their "correct answer"
+hand-authored to match what each scenario's acceptance criteria already
+said.
+
+### 20.2 Two candidate signals were ruled out before any code was written
+
+`docs/history/iteration-9/REPORT.md` named two directions: correlating a
+refusal with the agent's own stated need (text-parsing, rejected on
+principle), and scoping refusals to the Work Package's declared
+`components`/`capabilities`. A third, graph-proximity-based candidate was
+explored while scoping this iteration. All three were found structurally
+incapable of working, not merely risky: `McpGrant.allowedElementIds`
+(`src/mcp/grant.ts`) already grants everything within
+`impactOf(declared, context_depth + 1)` — so a real refusal is, by
+construction, always for an element outside that radius. Neither graph
+proximity nor declared-scope membership can ever produce a positive
+match for a genuine refusal. See `docs/history/iteration-11/SCOPE.md`
+"What We Know."
+
+### 20.3 `src/runtime/adapters/claude-sdk.ts` — where the new rule lives
+
+`classifyResultMessage` gained a third, optional `relatedElements`
+parameter. When declared, a refusal is authoritative for `RunBlocked`
+only if its own `elementId` — correlated in `events()` from `toolCalls`,
+never parsed from any text — matches a declared `required: true` entry.
+When absent (every Work Package before this iteration, and every
+existing test fixture), Iteration 9's own unconditional "any refusal ⇒
+blocked" rule applies exactly as before — this iteration is additive,
+not a replacement.
+
+### 20.4 Deliberately not built
+
+A real authoring path for populating `relatedElements` — Iteration 12's
+own scoped territory (incremental architecture authoring). Auto-deriving
+it from `buildWorkPackage()`. Removing the naive `toolResults`-refusal
+fallback — not warranted; it remains correct for a Work Package that
+declares nothing. `architecture-change-required` and `mapping-missing` —
+still unreachable with today's MCP tool catalog.
 
 ## Execution telemetry
 
