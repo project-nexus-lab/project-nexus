@@ -67,6 +67,7 @@ Demonstrated correct by direct implementation evidence.
 | `mapMessage()` can translate a real agent's free-form final output into a structured `RunBlocked` event using a plain, exact-match textual convention, without a dedicated MCP tool for the agent to call instead | Iteration 8 | Both live runs: `events()` yielded a real `RunBlocked` (reason `context-insufficient`) as the fourth event, confirmed by inspecting the actual sequence each run produced, not assumed from hermetic fixture tests (added first) predicting the outcome. **Validated for `context-insufficient` only — `architecture-change-required` and `mapping-missing` remain unreachable with today's MCP tool catalog; see Unproven.** |
 | Nexus already possesses deterministic, structured evidence sufficient to classify `context-insufficient` without agent involvement | Architecture Review (between Iteration 8 and Iteration 9, not an iteration) | Confirmed by direct code inspection, not inferred: `GrantRefusedError` (`src/mcp/grant.ts`) fires synchronously and fully typed the moment a call crosses the grant boundary; `ClaudeSdkAdapter`'s `toolResults` (Iteration 6) already records every occurrence (`isError: true`) as a side effect of existing tool-call tracking, currently unused for `RunEvent` classification. `GrantRefusedError.reason` is caught but discarded — only `.message` is used today. **This is a fact about what data exists, not a claim that backend classification has been built or found correct — see Unproven, below.** |
 | `RunBlocked` (reason `context-insufficient`) can be classified deterministically from a run's accumulated `toolResults`, independent of whether the agent's own text matches the `BLOCKED:` convention | Iteration 9 | A real live run reproducing Iteration 8's own scenario, with `events()`'s classification now confirmed — by inspecting `h.toolResults` directly, not only the resulting event — to originate from the backend observation. Hermetic tests confirm the same mechanism with final text that does not contain the convention at all. **Validated for the mechanism only — see Invalidated, below, for the specific classification rule this iteration implemented.** |
+| The eight named graph traversals, plus `governanceOfElements`, remain correct and fast (sub-1.1ms average per call) against a synthetic graph of realistic mid-size-organization scale (~1,350 elements, ~1,920 provisions, ~1,481 dependencies, ~304 decisions+constraints) | Iteration 10 | `investigate-graph-scale.ts`: 1,158 of 1,158 correctness checks passed against expected results computed independently in plain TypeScript, not re-derived from the SQL under test. Timed against a same-shape toy-scale baseline in the same run. **Validated for the tested scale only — see Unproven, above, for larger scale and real task shape.** |
 
 ---
 
@@ -80,7 +81,7 @@ concrete experiment a future iteration can run directly.
 | Curated FileAnchors (§13 Alt. A) are worth their maintenance cost and don't silently rot | Iteration 0 | One hand-authored anchor, written in the same commit as everything it describes — zero elapsed time, zero maintenance evidence. §13 is explicitly undecided in the source document. | Observe a real anchor against a real repository that changes over time (post repository-bootstrap); answer §13.4's own four questions. |
 | `WorkPackageProfile.context_depth` correctly bounds `impactOf`, and the grant's `context_depth + 1` widening composes correctly on top, for depth > 0 | Iteration 0, extended Iteration 3 | The seed dataset ships exactly one profile at `context_depth: 0`; only `impactOf(..., 1)` (the grant's case) has ever been exercised. A profile at depth ≥ 1 — where the Work Package itself already includes one-hop impact and the grant would need to widen one level *further* — has never been built. | Seed a real profile at depth ≥ 1 against a component with a real multi-hop dependency chain; check both the Work Package's own impact set and the grant built from it. |
 | A component served by more than one repository resolves to a *usable* Work Package, not just a mechanically correct one | Iteration 0 | Only tested against a synthetic fixture built to trigger the ambiguity branch — no real content behind either repository. | Seed a second real repository against a real component; generate a Work Package with ambiguity allowed; have a human judge the result. |
-| The recursive-CTE traversal layer performs acceptably at realistic scale | Iteration 0 | Correctness proven at ~10 architecture elements, 5 work items, 1 dependency edge. Never measured against anything resembling a real organization's graph. | Generate a synthetic graph at representative scale (e.g. 500 components, 2,000 tasks, depth 5); measure traversal latency against the MCP call budget. |
+| `governanceOfElements`'s linear per-round-trip cost (~1ms/anchor, confirmed Iteration 10) is not a real problem in practice, and the traversal layer holds at a meaningfully larger scale than Iteration 10 tested | Iteration 0, resolved for ~1,350 elements Iteration 10, narrowed | Iteration 10 confirmed the cost curve (2 anchors ≈ 2ms; 80 anchors ≈ 79ms) against a synthetic task it constructed itself, not real usage; and tested one stated scale (~1,350 elements), not the true breaking point in either direction. | Measure the real distribution of capabilities-affected-per-task once real Work Packages exist at volume; re-run `investigate-graph-scale.ts` at a larger `GraphParams` scale if a concrete reason to expect it exists. |
 | The in-process, direct-function-call form of `RunBlocked` / `ProposalApplied` (§2.2) will still be the right shape once a real Orchestrator (1f) exists | Iteration 1 | No event type, dispatcher, or subscription mechanism exists yet — "the event" is just which function gets called (`blockTask`, `releaseBlockedTasks`), by a test or a human today. | When 1f's Orchestrator is built, wire its `RunBlocked` handling to call these functions as real event effects; see whether the signatures survive or need reshaping around an actual event payload. |
 | R-1's write-authorization boundary ("the runtime never holds a write credential") holds against a real caller, not just in the data model | Iteration 1 | The state machine enforces R-1's substance (agent-authored proposals are always `draft`; only a human principal can approve), but nothing yet distinguishes "the platform, acting on a genuine `RunBlocked` event" from "any HTTP caller" — Authentication remains out of scope. Not new, but newly testable now that a real HTTP surface exists. | Not this platform's evidence to gather until Authentication is in scope — revisit then rather than assuming the state machine alone was always sufficient. |
 | `ArtifactProduced` — the one `RunEvent` kind never yet exercised against a real agent — is sufficient as shaped (`artifactRef: string`), once a real scope needs it | Iteration 2, narrowed Iteration 6, narrowed further Iteration 8 | `RunBlocked` (for `context-insufficient`) is now validated (see Validated, above), leaving `ArtifactProduced` as the only untested kind of the six. It depends on the real output path (push/branch/PR), still deferred since Iteration 4. | Build a scope that actually needs the real output path, and see whether `ArtifactProduced`'s shape suffices once something real can populate `artifactRef`. |
@@ -114,6 +115,8 @@ from the architecture documents alone is not reliable.
 | A Work Package built from just `task`/`capabilities`/`components` gives a real adapter enough to direct a specific run — implicit while writing the first version of Iteration 6's verification script, never stated as a hypothesis because it seemed too obvious to name | Iteration 6 | Two live runs showed a real agent calling the wrong component id. The cause was not the agent: `ClaudeSdkAdapter.start()`'s only inputs are `runId`/`workPackage`/`grant`, and the run-specific instructions were never passed through any of them — only console-logged. Given generic context alone, the agent reasonably inferred a target from what the Work Package *did* declare. | `buildPrompt()` now reads and includes `workPackage.acceptanceCriteria` — a real, pre-existing `WorkPackagePayload` field — verbatim; `verify-claude-adapter.ts` passes its instructions through it instead of an unused local variable. After the fix, the agent followed the exact instructions on the next two attempts. |
 | §9.5 authorizes the *call*, not the result — leaving `getAncestry`'s result unfiltered was a defensible, low-risk interpretation that could reasonably be left as documented risk (Iteration 3's own reading) | Iteration 7 | The very first real, non-adversarial attempt to test this found a real leak — not a contrived edge case, an entirely ordinary task ("confirm this component's structural placement") was sufficient to trigger it on the first try, because `getAncestry` is exactly the kind of tool a legitimate task reaches for. The risk was not theoretical or requiring unlikely conditions; it was the default outcome of the agent doing its job as instructed. | `getAncestry`'s result is now filtered (`redactOutOfGrantAncestor`, `src/mcp/tools.ts`). A disclosed risk carried as Unproven is a flag to test with real evidence as soon as the tooling exists (Iteration 6's real adapter), not a permanent resting place for the concern. |
 | Treating any observed grant refusal as sufficient, unconditional grounds for `RunBlocked` avoids introducing new false positives relative to the agent-reported approach | Iteration 9 | A real agent, given a task with an explicitly optional, genuinely not-required secondary check, attempted it, was refused, explicitly reasoned in its own final text that the refusal did not affect task completion, and concluded "Readiness confirmed." The backend classifier marked the run `RunBlocked` anyway — a real, demonstrated over-trigger, not a contrived edge case; the scenario required no adversarial framing. | The naive rule (`toolResults.some(r => r.isError)` ⇒ blocked) remains implemented — Iteration 9's own Validated evidence shows it is also correct for the relevant-refusal case — but is now known to be too coarse. Not corrected in this iteration; see Unproven, above, for the refined signal a future iteration would need to design. |
+| No index exists on `parent_id`/`from_id`/`predecessor_id`, implying a real performance risk for `ancestry`/`impactOf`/`resolve` at scale — stated as "What We Know" in `docs/history/iteration-10/SCOPE.md` | Iteration 10 | Reading `db/migrations/0007_graph.sql` directly: all three traversals join their recursive CTE against the *leading* column of an existing composite primary key, already index-backed for free. The genuinely uncovered columns are narrower (`element_provision.capability_id`, `decision_scope.element_id`, `repository_component.component_id`), and even those show no measurable effect at the tested scale. | `investigate-graph-scale.ts` was written testing the corrected, narrower suspect list, not the original broader one; no index was added, since none was warranted by the resulting measurements. |
+| `governanceOfElements`'s anchor set widens with a wide execution profile's `context_depth` (via `impactOf`), making profile width the real driver of its N-sequential-round-trips cost | Iteration 10 | Reading `src/workpackage/build.ts` directly: Step 4's `impactOf`-widened `impactedComponents` set feeds a separate field (for a future run-scoped MCP grant) and is never merged into the governance anchor set built in Step 6. The real lever is a task affecting many capabilities directly, not profile widening. | `investigate-graph-scale.ts` builds the anchor set exactly as `build.ts` does (`resolvedCapabilities ∪ resolvedComponents`, default profile) and tests both a typical single-capability task and one task deliberately affecting many capabilities directly. |
 
 ---
 
@@ -135,9 +138,15 @@ one architectural bet.
    `MVP_ARCHITECTURE_V2.md` is explicitly unresolved in the source
    document itself; Iteration 0 shipped Alternative A (curated
    FileAnchors) by default, not by evidence.
-3. **Do the graph traversals hold up past toy scale?** Every traversal is
-   correctness-proven; none has been measured against a graph resembling a
-   real organization's architecture.
+3. **Does `governanceOfElements`'s real round-trip cost matter in
+   practice, and do the traversals hold at a meaningfully larger scale
+   than tested?** Narrowed from "do the graph traversals hold up past toy
+   scale" — Iteration 10 answered that directly for ~1,350 elements: yes,
+   all eight traversals plus `governanceOfElements` remain correct and
+   fast (see Validated, above). What survives is narrower: whether real
+   tasks affect enough capabilities directly for `governanceOfElements`'s
+   confirmed linear cost to matter, and whether a meaningfully larger
+   scale (10x–100x) still holds — see Unproven, above.
 4. **Does every mechanism validated against a no-op/fake stand-in
    (`AgentRuntimeAdapter`, the MCP protocol boundary, `VcsProvider`) hold
    once the real thing behind it exists?** All three tracked instances now
@@ -158,6 +167,19 @@ one architectural bet.
    `RunBlocked` (see Invalidated, above). The question that survives is
    no longer *whether* the naive rule over-triggers, but what rule
    would not — see Unproven, above.
+6. **How would a Product Owner or Architect grow an existing project's
+   architecture graph incrementally, rather than only bulk-importing it
+   once from a single YAML file?** Raised in this session while discussing
+   what a real PO/architect interface to Nexus would need:
+   `importArchitecture` (`src/import/architecture.ts`) is a plain `insert`
+   with no conflict handling — re-running it against an already-populated
+   graph fails, so today's only authoring path is a one-shot seed, not an
+   incremental one. **Not prioritized for now**: this project validates
+   foundational assumptions before building higher-level functionality on
+   top of them, and Open Question #3 (graph scale) is more foundational —
+   an authoring path for a graph that has not been shown to hold at real
+   scale would be built on an unproven foundation. No iteration currently
+   scoped.
 
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to
@@ -211,6 +233,16 @@ signal would not. The classification *mechanism* itself (moving
 authority from agent text to backend observation) is separately
 Validated and not called into question by this finding — see Validated,
 above.
+
+Resolved as of Iteration 10, narrowed rather than removed: *do the graph
+traversals hold up past toy scale?* — yes, at ~1,350 elements, confirmed
+by 1,158/1,158 independently-verified correctness checks and per-traversal
+timing against a same-shape toy baseline (see Validated, above). Two of
+this iteration's own scope document's specific technical premises — which
+columns lack index coverage, and how `governanceOfElements`'s anchor set
+grows — were themselves found wrong during implementation, not merely
+untested (see Invalidated, above). Replaced above by the narrower
+question of real task shape and larger-scale behavior.
 
 A note on numbering, added after this document's own numbered rankings
 were twice quoted stale in other files' prose (`docs/history/iteration-2/`

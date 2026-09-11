@@ -30,7 +30,8 @@ real Claude SDK Adapter — is §15. Iteration 7 — does the MCP grant model
 bound what an agent can learn — is §16. Iteration 8 — can a real agent's
 RunBlocked signal be captured — is §17. Iteration 9 — should
 context-insufficient be classified from backend observations rather than
-agent text — is §18. The Execution telemetry section between §16 and §17
+agent text — is §18. Iteration 10 — do the graph traversals hold up past
+toy scale — is §19. The Execution telemetry section between §16 and §17
 is a focused enhancement done chronologically between Iterations 6 and
 7, not an iteration itself — see its own note on why it appears where it
 does.)*
@@ -105,15 +106,19 @@ src/
                     (§10.4) — see §13 below. Iteration 5:
                     gh-cli-vcs-provider.ts, a real GitHub-backed
                     VcsProvider — see §14 below.
-  cli/              Nine scripts: migrate, import, verify, serve,
+  cli/              Ten scripts: migrate, import, verify, serve,
                     verify-github (Iteration 5), verify-claude-adapter
                     (Iteration 6), investigate-ancestry-disclosure
                     (Iteration 7), investigate-run-blocked (Iteration 8,
                     updated Iteration 9), investigate-blocked-relevance
-                    (Iteration 9) — none of the verify-*/investigate-*
-                    scripts are part of npm test.
+                    (Iteration 9), investigate-graph-scale (Iteration 10)
+                    — none of the verify-*/investigate-* scripts are part
+                    of npm test.
 test/               node:test suite — the executable proof for §7/§10/§11/§12/§13/§14/§15/§16/§17/§18 below,
                     plus execution-telemetry.test.ts (see "Execution telemetry" below).
+                    §19 (Iteration 10) adds no test/ file — its proof is
+                    investigate-graph-scale.ts's own 1,158 correctness
+                    checks, not part of npm test; see §19 below.
 ```
 
 `docs/` (authoritative documents) lives at the monorepo root
@@ -931,6 +936,68 @@ Unproven, not designed here; `architecture-change-required` and
 `mapping-missing` backend classifiers (no discoverable mechanism yet);
 Repository MCP; any new MCP tool; the Orchestrator; a general-purpose
 workflow-state framework or rules engine; `proposalDraft` population.
+
+## 19. Iteration 10: do the graph traversals hold up past toy scale?
+
+Full detail in `docs/history/iteration-10/SCOPE.md`, `REPORT.md`, and
+`LESSONS.md`. Answers `docs/PROJECT_KNOWLEDGE.md`'s longest-standing Open
+Question, unresolved since Iteration 0: every named traversal was
+correctness-proven at ~10 elements, never measured against anything
+resembling a real organization's architecture.
+
+### 19.1 What this validates, and what it does not
+
+**Validated, for the tested scale**: all eight named traversals, plus
+`governanceOfElements`, remain correct (1,158/1,158 independently-computed
+checks passed) and fast (sub-1.1ms average per call) against a synthetic
+graph of ~1,350 elements. **Not validated**: behavior at a meaningfully
+larger scale (10x–100x untested), and whether `governanceOfElements`'s
+confirmed linear round-trip cost (~1ms/anchor) matters against real task
+shapes rather than this iteration's own synthetic 40-capability case.
+
+### 19.2 Two of this iteration's own scope predictions were wrong
+
+Disclosed directly, not silently corrected — see
+`docs/PROJECT_KNOWLEDGE.md` Invalidated. `docs/history/iteration-10/SCOPE.md`
+claimed no index exists on `parent_id`/`from_id`/`predecessor_id`,
+implying a real risk for `ancestry`/`impactOf`/`resolve`; reading
+`db/migrations/0007_graph.sql` directly during implementation showed all
+three already get an index-backed lookup for free, via the leading
+column of an existing composite primary key. It also assumed
+`governanceOfElements`'s anchor set widens with a wide execution
+profile's `context_depth`; reading `src/workpackage/build.ts` directly
+showed that widened set (`impactedComponents`, Step 4) feeds a separate,
+future MCP-grant field and is never merged into the governance anchor
+set (Step 6) — the real lever for a large anchor set is a task affecting
+many capabilities directly, not profile width.
+
+### 19.3 `src/cli/investigate-graph-scale.ts` — not part of `npm test`
+
+```
+npm run investigate:graph-scale
+```
+
+No `claude` CLI or network access required — unlike every other
+`investigate-*.ts` script, this one drives two in-memory databases
+directly, no real agent involved. A parameterized synthetic-graph
+generator is run twice (once at "scale," once at "toy" size, same
+shape), so every timing number is compared against a same-shape baseline
+in the same run. Correctness is checked against expected results computed
+independently in plain TypeScript, not re-derived from the SQL under
+test — including a genuinely multi-valued, non-deduplicating ground truth
+for `impactOf` (the CTE enumerates every distinct path up to depth, not
+shortest-path-per-node, confirmed directly rather than assumed).
+
+### 19.4 Deliberately not built
+
+No index was added — the measurements did not support one at this scale.
+No redesign of `governanceOfElements`'s N-sequential-round-trips shape
+into a single batched query — real, evidenced as a genuine future need
+if real task shapes warrant it, not attempted here. Testing at a larger
+synthetic scale (10x/100x) — deferred until a concrete reason to expect
+it exists. Incremental architecture/feature authoring
+(`docs/PROJECT_KNOWLEDGE.md` Open Question #6) — unrelated, untouched,
+still explicitly not prioritized.
 
 ## Execution telemetry
 
