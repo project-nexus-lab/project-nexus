@@ -13,6 +13,7 @@
     "investigate:grant-disclosure": "tsx src/cli/investigate-ancestry-disclosure.ts",
     "investigate:run-blocked": "tsx src/cli/investigate-run-blocked.ts",
     "investigate:blocked-relevance": "tsx src/cli/investigate-blocked-relevance.ts",
+    "investigate:graph-scale": "tsx src/cli/investigate-graph-scale.ts",
     "serve": "tsx src/cli/serve.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"
