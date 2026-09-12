@@ -185,6 +185,36 @@ one architectural bet.
    scale would be built on an unproven foundation. No iteration currently
    scoped.
 
+7. **Where do Technology Profiles — architecture-governed configuration
+   for a Product's language, runtime, build system, framework, testing
+   profile, CI profile, and containerization profile — enter the
+   roadmap, and what must be validated first?** Raised in this session
+   while separating strategic technology decisions from routine delivery
+   work. Proposed shape: a `tech.*` catalog (initially one seeded row,
+   `tech.java24-spring`) attached to a Product, created or modified only
+   via an ADR-gated proposal (reusing the `Decision`/`decision_scope`
+   mechanism already validated for `adr.*`), selected without an ADR; no
+   component-level override and no portfolio-reporting surface in the
+   first slice. **Not prioritized as an immediate implementation
+   target**: its governance half depends on Open Question #6's authoring
+   API existing first, so profile selection rides a validated general
+   write path instead of a bespoke one-off; its generation half —
+   repository generation actually consuming the profile to emit
+   language/build/CI/container scaffolding — would extend `render()`
+   (§10.4, `MVP_ARCHITECTURE_V2.md`) well beyond what it is validated to
+   produce today (generic metadata/snapshot/CI-workflow/hint files only),
+   and rests on Repository Bootstrap's own still-Unproven push/branch/PR
+   path at real scale (see Unproven, above). Building either half now
+   would stack new capability on an unproven foundation. A naming
+   collision risk was also flagged during review: this is a
+   *technology*-stack "runtime," distinct from — and easily confused
+   with — the existing *agent*-runtime "Runtime Integration" context and
+   `WorkPackageProfile`; whoever specs this as a real ADR should
+   disambiguate explicitly rather than relying on the `tech.*` ID prefix
+   alone. No iteration currently scoped; tentatively sequenced after the
+   authoring API (governance slice) with generation-consumption deferred
+   further still. See `docs/ROADMAP.md` for the current placement.
+
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to
 close?* — see Validated, above.
