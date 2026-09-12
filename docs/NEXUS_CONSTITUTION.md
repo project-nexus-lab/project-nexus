@@ -47,6 +47,11 @@ Product
 → Component
 → Capability
 
+Product is the highest architecture ownership boundary.
+
+Every architecture element belongs, through containment ancestry, to
+exactly one Product.
+
 All entities use stable IDs.
 
 Examples:

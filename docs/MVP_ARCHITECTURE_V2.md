@@ -13,6 +13,13 @@ principle.
 This document is self-contained. It replaces v1 rather than amending it.
 Section 17 maps every v1 change for anyone diffing.
 
+**Instance scope.** One Nexus instance serves exactly one organization.
+Multi-tenancy is out of scope for the current architecture — not a
+feature this document designs around, postpones as a detail, or leaves
+implicit. §6.3's "multi-tenant namespacing" and §15's "RBAC /
+multi-tenancy" are this same boundary, named twice already as postponed
+work; this statement is what they were both already assuming.
+
 ---
 
 ## 0. MVP Definition

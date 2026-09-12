@@ -67,17 +67,31 @@ following it blindly.
    new endpoint — client-side, per-capability fetching was sufficient at
    this project's own seeded scale (untested at real scale). No proposal
    UI, no writes, no auth. See `docs/history/iteration-14/`.
-6. **Iteration 15** — Technology Profiles, governed-configuration slice
-   only: a `tech.*` catalog entry (language, runtime, build system,
-   framework, testing profile, CI profile, containerization profile)
-   attached to a Product, created/modified only via an ADR-gated
-   proposal (reusing the already-validated Decision/governance
-   mechanism), selected without an ADR. Ships with exactly one seeded
-   profile (`tech.java24-spring`) to prove the catalog shape is
-   extensible without redesign — not a multi-language template library.
+6. **Iteration 15** (scoped) — Technology Profiles, governed-configuration
+   slice only. Revised by an architecture consolidation pass ahead of
+   scoping: **not** a flat Product→profile attachment reusing the
+   Decision/governance mechanism (a composite catalog id forced by that
+   shape doesn't decompose into queryable facts, and the general
+   nearest-ancestor-wins resolution it would borrow has nothing to
+   resolve for a single attachment point) — instead, category-scoped
+   assignments (`Product × Category → Technology Profile`), with only
+   the `backend` category actually populated (`tech.java24-gradle`:
+   language, version, build system — corrected from an earlier
+   `tech.java24-spring` sketch, which baked an unmodeled framework
+   dimension into the id; see `docs/history/iteration-15/SCOPE.md`). The category table exists in full
+   from day one so adding `frontend`/`infrastructure`/`data` later is
+   additive, not a migration. Whether Technology Profile governance
+   reuses `architecture.change_operation` (which would make it the
+   fourth operation type sharing that table's disclosed,
+   not-mutually-exclusive schema, `docs/history/iteration-12/LESSONS.md`)
+   or uses a separate mechanism is an explicit prerequisite decision for
+   this iteration's own scoping, not something to inherit by default.
    Explicitly excludes component-level overrides, portfolio reporting,
-   and repository generation actually consuming the profile (all named
-   future work). See `docs/PROJECT_KNOWLEDGE.md` Open Question #7.
+   repository generation actually consuming the profile, and
+   frontend/infrastructure/data functionality beyond the category table
+   itself (all named future work). See
+   `docs/history/iteration-15/SCOPE.md` and `docs/PROJECT_KNOWLEDGE.md`
+   Open Question #7.
 
 ## Why this order
 
@@ -87,11 +101,13 @@ UI (12 → 13 → 14), each iteration validating the layer below before
 building on it — this project's own stated principle, applied
 consistently since the reasoning that deferred incremental authoring in
 Iteration 10 until graph scale was validated. Technology Profiles (15)
-rides Iteration 13's authoring API rather than getting a bespoke write
-mechanism of its own, and its heavier half — repository generation
-actually consuming the profile — stays deferred behind Repository
-Bootstrap's own still-Unproven push/branch/PR-at-scale question (see
-`docs/PROJECT_KNOWLEDGE.md`, Unproven).
+rides Iteration 13's REST surface rather than inventing a new HTTP
+layer of its own — this is about the transport, not the underlying
+governance mechanism, which stays an open, explicit decision for
+Iteration 15's own scoping (see item 6, above). Its heavier half —
+repository generation actually consuming the profile — stays deferred
+behind Repository Bootstrap's own still-Unproven push/branch/PR-at-scale
+question (see `docs/PROJECT_KNOWLEDGE.md`, Unproven).
 
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
