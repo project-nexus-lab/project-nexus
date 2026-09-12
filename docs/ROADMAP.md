@@ -31,10 +31,23 @@ following it blindly.
    that a minted element couldn't yet become *usable* — closed for
    `Component provides Capability` via a new `provide` operation. See
    `docs/history/iteration-12/`.
-3. **Iteration 13** — Architecture/PO authoring API, building on
-   Iteration 12's incremental write path.
+3. **Iteration 13** (closed) — Architecture/PO authoring API. A plain,
+   ungated HTTP read surface (list/get elements, get a capability's
+   providers, list/get proposals) — added without changing the existing
+   `create`/`retire`/`provide` write shape at all — let a simulated
+   PO/Architect complete discover → draft → review → approve → apply →
+   confirm end-to-end, starting from only a product's name. One endpoint
+   not originally planned (`/architecture/:id/providers`) turned out
+   indispensable; one that was planned (`GET /architecture/:id`) went
+   unused. See `docs/history/iteration-13/`.
 4. **Iteration 14** — First architecture UI, building on Iteration 13's
    API. `apps/frontend` is still an empty placeholder as of Iteration 10.
+   Iteration 13's own investigation names concrete starting input, not
+   just "build a UI": automate the product → domain → subsystem →
+   capability walk as one navigation control instead of separate manual
+   list calls, and decide whether provider/unprovided status needs a new
+   HTTP endpoint or can be synthesized client-side (see
+   `docs/history/iteration-13/REPORT.md`).
 5. **Iteration 15** — Technology Profiles, governed-configuration slice
    only: a `tech.*` catalog entry (language, runtime, build system,
    framework, testing profile, CI profile, containerization profile)
@@ -99,6 +112,17 @@ iteration is scoped against it until it's explicitly pulled forward.
   §15 separately postpones RBAC/multi-tenancy for the same
   reason ("humans need it once teams multiply"). This item is the
   broader umbrella both already point at.
+- **A fact worth recording, not acted on**: Iteration 13 added a plain
+  read surface that lets anyone reach the HTTP port enumerate the
+  *entire* architecture graph and list every proposal — including its
+  `authoredBy`/`approvedBy` attribution strings — from zero prior
+  knowledge (`docs/history/iteration-13/`). Every route before that
+  iteration required already knowing an id; discovery-by-listing is a
+  materially larger exposed surface than "as ungated as the existing
+  `/ancestry` route" fully captures. Not a reason to act now — this item
+  stays parked — but whoever eventually scopes this should know the
+  surface it needs to cover already grew once since this item was first
+  written.
 - **Why parked rather than scoped**: no current iteration needs it yet —
   today's only "caller" is this project's own test suite and CLI
   scripts, not a real multi-user deployment. Constitutionally
