@@ -54,14 +54,19 @@ following it blindly.
    findings: whether an *incomplete* declared set can still cause silent
    misclassification — untested by design, since both reused scenarios
    are complete by construction. See `docs/history/iteration-14a/`.
-5. **Iteration 14** — First architecture UI, building on Iteration 13's
-   API. `apps/frontend` is still an empty placeholder as of Iteration 10.
-   Iteration 13's own investigation names concrete starting input, not
-   just "build a UI": automate the product → domain → subsystem →
-   capability walk as one navigation control instead of separate manual
-   list calls, and decide whether provider/unprovided status needs a new
-   HTTP endpoint or can be synthesized client-side (see
-   `docs/history/iteration-13/REPORT.md`).
+5. **Iteration 14** (closed) — First architecture UI: one screen, React
+   + Vite + TypeScript, talking to Iteration 13's discovery API through
+   a dev-time proxy (no CORS change to the backend). A real, driven
+   browser session reproduced Iteration 13's own acceptance bar
+   visually — reached `cap.invoice-export` from nothing but the name
+   "Trade Platform," saw "No provider" on screen, and the screen's own
+   visible call log showed exactly 5 real `GET` calls. Both of Iteration
+   13's open questions answered from that evidence: `GET /architecture/:id`
+   was not needed (a second independent real workflow to find it
+   unused, not removed on two data points); provider status needed no
+   new endpoint — client-side, per-capability fetching was sufficient at
+   this project's own seeded scale (untested at real scale). No proposal
+   UI, no writes, no auth. See `docs/history/iteration-14/`.
 6. **Iteration 15** — Technology Profiles, governed-configuration slice
    only: a `tech.*` catalog entry (language, runtime, build system,
    framework, testing profile, CI profile, containerization profile)
@@ -149,8 +154,9 @@ iteration is scoped against it until it's explicitly pulled forward.
   surface it needs to cover already grew once since this item was first
   written.
 - **Why parked rather than scoped**: no current iteration needs it yet —
-  today's only "caller" is this project's own test suite and CLI
-  scripts, not a real multi-user deployment. Constitutionally
+  today's callers are this project's own test suite, CLI scripts, and
+  (since Iteration 14) a real but single-user, locally-run frontend
+  screen — not a real multi-user deployment. Constitutionally
   compatible on its face (an identity-provider-agnostic core mirrors
   the Runtime Integration ACL's existing agent-runtime-agnostic
   pattern, §4.4 `MVP_ARCHITECTURE_V2.md`), but that compatibility

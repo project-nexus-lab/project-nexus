@@ -71,6 +71,8 @@ Demonstrated correct by direct implementation evidence.
 | A backend-derived signal — the Work Package's own declared `relatedElements` field, checked against which specific element a refusal targeted — correctly distinguishes a task-blocking refusal from one the agent legitimately worked around, without any reliance on agent-authored text | Iteration 11 | Two real, live re-runs of Iteration 9's own scenarios: the relevant refusal (`comp.iter8-upstream`, declared `required: true`) correctly produces `RunBlocked`; the irrelevant refusal (`comp.iter9-related`, declared `required: false`) — the exact case Iteration 9's naive rule over-triggered on — correctly produces `RunCompleted`. Both decided by `h.toolResults`' `elementId` field, correlated from real tool calls, not from either run's prose. **Validated for a hand-populated field matching a known-correct answer — see Unproven, below, for whether Work Package generation can populate it correctly on its own.** |
 | A `provide` operation, added to the existing `ArchitectureChangeProposal` mechanism and writing into the existing, unchanged `element_provision` table, closes the gap where minting a component to satisfy a missing capability left that capability unprovided after apply | Iteration 12 | A real Task blocked on `unprovided-capability` (`cap.invoice-export`) is unblocked by a single `create` + `provide` proposal, applied atomically; `unprovidedCapabilities()` (Alignment, §8.5) confirmed the capability no longer unprovided afterward, checked directly, not inferred from the proposal's own success. A second test minted both ends of the provision edge (component and capability) in the same proposal and confirmed the resulting row and `ApplyProposalResult.providedLinks` both correctly reflect it. |
 | A plain, ungated HTTP read surface (discovery + review) — added without changing the existing `create`/`retire`/`provide` write shape at all — is sufficient for a real Product Owner/Architect to complete a full authoring workflow starting from only a product's name | Iteration 13 | Both a hermetic HTTP-driven test and a live investigate script (`investigate-po-authoring-workflow.ts`) independently completed discover → draft → review → approve → apply → confirm end-to-end, referencing zero hardcoded `prod.*`/`dom.*`/`subsys.*`/`comp.*`/`cap.*` id literals — only the human-readable name "Trade Platform." `operations[]`'s wire shape was not touched. |
+| A minimal UI screen, built entirely from Iteration 13's discovery API with zero backend changes, lets a real human complete the same discover-down-to-a-capability workflow already proven at the API layer | Iteration 14 | One real, driven browser session (`claude-in-chrome`) against a real running backend and a real running Vite dev server: clicking Trade Platform → Billing → Invoice → Export Invoice rendered "No provider — this capability is unprovided," with the screen's own visible call log showing exactly five real `GET` calls, all `200`, reproduced verbatim in `docs/history/iteration-14/REPORT.md`. |
+| Client-side, per-capability provider-status fetching — no new backend endpoint — is sufficient for a real discovery screen, at this project's own seeded scale | Iteration 14 | The real session above fetched providers for one selected capability via `GET /architecture/:id/providers` alone; no batching or aggregation was needed to render the result acceptably. Resolves the narrower half of Iteration 13's own open question about provider-status discovery. **Validated at this project's own small seed scale only — see Unproven, below, for real-scale behavior.** |
 | A plain, human-declared table (`work.work_item_related_element`), read by `buildWorkPackage()` for the first time, correctly populates `relatedElements` and leaves Iteration 9/11's own validated `RunBlocked` classification outcomes unchanged | Iteration 14a | `investigate-related-elements-authoring.ts`: both of Iteration 9's and Iteration 11's own reusable scenarios reproduced with fresh elements, declared through the new table instead of a hand-typed literal; `buildWorkPackage()`'s real output matched each scenario's known-correct `relatedElements` value exactly, and feeding that real payload into a live agent run reproduced both scenarios' already-validated classifications (`RunBlocked` for required, `RunCompleted` for optional) with nothing hand-typed anywhere in the `relatedElements` path. |
 
 ---
@@ -101,8 +103,8 @@ concrete experiment a future iteration can run directly.
 | The bootstrap mechanism's success provisioning a real repository predicts success for the rest of §10.2's flow — pushing `generateProjection`'s output, creating a branch, opening a PR | Iteration 5 | Explicitly out of scope this iteration (`docs/history/iteration-5/SCOPE.md` §4); provisioning (`gh repo create`, GitHub's REST API) and pushing content (`git` operations) are different operations against different parts of GitHub's surface, with their own untested failure modes. | Write `generateProjection`'s managed-region files to disk, commit, push a branch, and (if going as far as §10.2 step 5) open a PR against a real repository; check whether that succeeds the way provisioning did. |
 | Nexus reduces context consumption and execution cost | Focused enhancement after Iteration 6 (not an iteration) | Current evidence is that execution telemetry capture exists (`execution.run_telemetry`, `src/execution/telemetry.ts`) — real token counts, durations, context and grant sizes are now recorded per run. That is evidence the platform *can* measure consumption and cost-relevant facts going forward, not evidence that it *reduces* either; a single real run's numbers are a data point, not a trend. Explicitly not classified as Validated. | Historical execution data — multiple real runs, ideally across comparable tasks with and without Nexus's grant-scoping and context-bounding in effect, compared against each other over time. Nothing this enhancement did produces that comparison by itself. |
 | `architecture.change_operation`'s check constraint, now covering three operation families (`create`/`retire`/`provide`), is a sufficient guard on row shape | Iteration 12 (discovered during `/review`, not during implementation) | The constraint only asserts that a given `op`'s required fields are present — never that the other operations' fields are absent. A `provide` row could carry a non-null `mint_id` and the schema would not reject it; the same looseness already existed between `create`/`retire` and is now extended to a third column family. Harmless today only because `draftProposal` is the sole writer and is disciplined about nulling irrelevant fields — not enforced at the schema level. Deliberately left as accepted, disclosed technical debt, not fixed. | Before a fourth operation type (`depend`, or `move`/`split`/`merge`) is added: decide, deliberately, between a mutual-exclusivity check across all column groups and the discriminated `jsonb` payload the schema's own migration comments have anticipated since Iteration 1. |
-| Whether capability discovery needs provider/unprovided status surfaced over HTTP before Iteration 14's UI is built, or whether the UI can synthesize it client-side from already-existing endpoints | Iteration 13 | `investigate-po-authoring-workflow.ts` found this a real, named friction point: `GET /architecture`'s listing carries no provider-status signal, so "which capabilities need a component" cannot be answered from a listing alone. The scripted workflow completed anyway, because the simulated PO already knew which capability to build against from its own backlog, the same way a real PO would — nothing tested whether a user without that prior knowledge would be equally unblocked. | Once Iteration 14's UI needs to show "which capabilities need attention," decide there whether that requires a new HTTP endpoint wrapping `unprovidedCapabilities()` (Alignment, §8.5) or can be synthesized client-side over `GET /architecture/:id/providers` calls already built. |
-| `GET /architecture/:id` (single-element detail, mirroring §9.2's `architecture.get_element`) earns a permanent place in the API surface | Iteration 13 | Built as scoped, but the one real workflow this iteration tested (both the hermetic test and the live investigate script) never called it — the listing endpoint's summary shape (`id`/`kind`/`name`/`status`) was sufficient at every step, and `childIds` was never consulted below the top of the containment walk. One data point, not a verdict: a UI's dedicated element-detail view is a plausible future consumer, but that need hasn't been demonstrated either. | Revisit once Iteration 14 has a concrete detail-view screen design; keep if genuinely needed there, remove if a future review finds it dead code. |
+| `GET /architecture/:id` (single-element detail, mirroring §9.2's `architecture.get_element`) earns a permanent place in the API surface | Iteration 13, still open as of Iteration 14 | Two independent real workflows — Iteration 13's own API-only investigation and Iteration 14's actual rendered screen — have both been built without ever calling it, confirmed both hermetically (`App.test.tsx` mocks `fetch` directly so the real call path executes) and in a real driven browser session. Convergent, not merely repeated, evidence against its necessity — but two data points, not a removal decision. | Revisit once a concrete future need (e.g. a dedicated element-detail view) either materializes or a future review judges it dead code; not removed speculatively on two data points. |
+| Client-side, per-capability provider-status fetching remains acceptable at a real organization's actual scale, not only this project's own small seed data | Iteration 14 | The one real session this iteration ran exercised exactly one capability lookup against a seed graph with single-digit elements per level — nothing tests a subsystem with dozens of capabilities each requiring a separate round trip, or a capability with many providers. | Once a real or realistic-scale dataset exists (the same kind `investigate-graph-scale.ts` already generates for a different question), repeat this iteration's real-session discipline at that scale and observe whether per-capability fetching still feels acceptable or demonstrates a concrete need for a batched/aggregated endpoint. |
 
 ---
 
@@ -186,23 +188,17 @@ one architectural bet.
 6. **Is the read/discovery surface Iteration 13 added sufficient for
    Iteration 14's UI, or does it still need to expose Alignment-query
    information (e.g. which capabilities are unprovided) directly over
-   HTTP?** Resolved for the core claim as of Iteration 13: a plain,
-   ungated HTTP read surface (discovery + review) — `GET /architecture/:id`,
-   `GET /architecture?kind=&parent=`, `GET /architecture/:id/providers`,
-   `GET /proposals/:id`, `GET /proposals?state=` — added *without changing*
-   the existing `create`/`retire`/`provide` write shape, was sufficient
-   for a real Product Owner/Architect to complete discover → draft →
-   review → approve → apply → confirm end-to-end starting from only a
-   product's name (see Validated, above). What survives is narrower:
-   `unprovidedCapabilities()` and similar Alignment queries remain
-   CLI-only, never exposed over HTTP — a real friction point Iteration
-   13's own investigation named directly (a capability listing carries no
-   provider-status signal) but did not need to close, since the simulated
-   PO already knew what to build from its own backlog, not from Nexus
-   surfacing it. Iteration 14 (the first UI) is where this should be
-   decided, from evidence of what the UI actually needs, not built
-   speculatively now. A secondary, smaller thread survives alongside it,
-   unchanged since Iteration 12: whether `depend` (`element_dependency`),
+   HTTP?** Resolved as of Iteration 14: sufficient, with no new endpoint
+   needed. A real screen, built entirely from Iteration 13's existing
+   API, synthesized provider/unprovided status client-side
+   (`GET /architecture/:id/providers` per selected capability) and it
+   worked — felt fast, needed no batching, at this project's own seeded
+   scale (see Validated, above; see Unproven, above, for the real-scale
+   caveat this doesn't cover). `unprovidedCapabilities()` and similar
+   Alignment queries remain CLI-only, never exposed over HTTP, and
+   evidence so far gives no reason to change that. A secondary, smaller
+   thread survives alongside it, unchanged since Iteration 12: whether
+   `depend` (`element_dependency`),
    Decision/Constraint attachment, or element renaming are ever actually
    needed, each deliberately left unimplemented pending a concrete scenario rather
    than built speculatively (see Unproven, `docs/history/iteration-12/LESSONS.md`).
@@ -322,6 +318,17 @@ Invalidated, above. Replaced above by the narrower question of whether a
 real, human-fallible declaration can be incomplete in a way that causes
 silent misclassification, carried forward unresolved from Iteration 11's
 own `/review` finding, not newly discovered here.
+
+Resolved as of Iteration 14, removed from this list: *is the
+read/discovery surface Iteration 13 added sufficient for Iteration 14's
+UI, or does it still need Alignment-query information exposed directly
+over HTTP?* — sufficient, confirmed by a real, driven browser session
+building a real screen entirely from Iteration 13's existing API, with
+provider status synthesized client-side and no new endpoint needed (see
+Validated, above). The same session also strengthened, without
+resolving outright, the standing question of whether `GET
+/architecture/:id` is worth keeping — two independent real workflows now
+have never called it (see Unproven, above).
 
 A note on numbering, added after this document's own numbered rankings
 were twice quoted stale in other files' prose (`docs/history/iteration-2/`
