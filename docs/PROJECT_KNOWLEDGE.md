@@ -69,6 +69,7 @@ Demonstrated correct by direct implementation evidence.
 | `RunBlocked` (reason `context-insufficient`) can be classified deterministically from a run's accumulated `toolResults`, independent of whether the agent's own text matches the `BLOCKED:` convention | Iteration 9 | A real live run reproducing Iteration 8's own scenario, with `events()`'s classification now confirmed — by inspecting `h.toolResults` directly, not only the resulting event — to originate from the backend observation. Hermetic tests confirm the same mechanism with final text that does not contain the convention at all. **Validated for the mechanism only — see Invalidated, below, for the specific classification rule this iteration implemented.** |
 | The eight named graph traversals, plus `governanceOfElements`, remain correct and fast (sub-1.1ms average per call) against a synthetic graph of realistic mid-size-organization scale (~1,350 elements, ~1,920 provisions, ~1,481 dependencies, ~304 decisions+constraints) | Iteration 10 | `investigate-graph-scale.ts`: 1,158 of 1,158 correctness checks passed against expected results computed independently in plain TypeScript, not re-derived from the SQL under test. Timed against a same-shape toy-scale baseline in the same run. **Validated for the tested scale only — see Unproven, above, for larger scale and real task shape.** |
 | A backend-derived signal — the Work Package's own declared `relatedElements` field, checked against which specific element a refusal targeted — correctly distinguishes a task-blocking refusal from one the agent legitimately worked around, without any reliance on agent-authored text | Iteration 11 | Two real, live re-runs of Iteration 9's own scenarios: the relevant refusal (`comp.iter8-upstream`, declared `required: true`) correctly produces `RunBlocked`; the irrelevant refusal (`comp.iter9-related`, declared `required: false`) — the exact case Iteration 9's naive rule over-triggered on — correctly produces `RunCompleted`. Both decided by `h.toolResults`' `elementId` field, correlated from real tool calls, not from either run's prose. **Validated for a hand-populated field matching a known-correct answer — see Unproven, below, for whether Work Package generation can populate it correctly on its own.** |
+| A `provide` operation, added to the existing `ArchitectureChangeProposal` mechanism and writing into the existing, unchanged `element_provision` table, closes the gap where minting a component to satisfy a missing capability left that capability unprovided after apply | Iteration 12 | A real Task blocked on `unprovided-capability` (`cap.invoice-export`) is unblocked by a single `create` + `provide` proposal, applied atomically; `unprovidedCapabilities()` (Alignment, §8.5) confirmed the capability no longer unprovided afterward, checked directly, not inferred from the proposal's own success. A second test minted both ends of the provision edge (component and capability) in the same proposal and confirmed the resulting row and `ApplyProposalResult.providedLinks` both correctly reflect it. |
 
 ---
 
@@ -96,6 +97,7 @@ concrete experiment a future iteration can run directly.
 | Repository visibility (and by extension other per-repository provisioning choices — organization, license, gitignore template) belongs on the `VcsProvider` port's per-call input, not adapter-level configuration | Iteration 5 | `GhCliVcsProvider` took visibility as a constructor parameter, fixed once per provider instance, specifically to keep the port's type unchanged — untested against a run that needs two different visibilities through one process. | Attempt to provision two repositories with different visibility in the same run; see whether adapter-level configuration holds up or the decision needs to move onto the port's input. |
 | The bootstrap mechanism's success provisioning a real repository predicts success for the rest of §10.2's flow — pushing `generateProjection`'s output, creating a branch, opening a PR | Iteration 5 | Explicitly out of scope this iteration (`docs/history/iteration-5/SCOPE.md` §4); provisioning (`gh repo create`, GitHub's REST API) and pushing content (`git` operations) are different operations against different parts of GitHub's surface, with their own untested failure modes. | Write `generateProjection`'s managed-region files to disk, commit, push a branch, and (if going as far as §10.2 step 5) open a PR against a real repository; check whether that succeeds the way provisioning did. |
 | Nexus reduces context consumption and execution cost | Focused enhancement after Iteration 6 (not an iteration) | Current evidence is that execution telemetry capture exists (`execution.run_telemetry`, `src/execution/telemetry.ts`) — real token counts, durations, context and grant sizes are now recorded per run. That is evidence the platform *can* measure consumption and cost-relevant facts going forward, not evidence that it *reduces* either; a single real run's numbers are a data point, not a trend. Explicitly not classified as Validated. | Historical execution data — multiple real runs, ideally across comparable tasks with and without Nexus's grant-scoping and context-bounding in effect, compared against each other over time. Nothing this enhancement did produces that comparison by itself. |
+| `architecture.change_operation`'s check constraint, now covering three operation families (`create`/`retire`/`provide`), is a sufficient guard on row shape | Iteration 12 (discovered during `/review`, not during implementation) | The constraint only asserts that a given `op`'s required fields are present — never that the other operations' fields are absent. A `provide` row could carry a non-null `mint_id` and the schema would not reject it; the same looseness already existed between `create`/`retire` and is now extended to a third column family. Harmless today only because `draftProposal` is the sole writer and is disciplined about nulling irrelevant fields — not enforced at the schema level. Deliberately left as accepted, disclosed technical debt, not fixed. | Before a fourth operation type (`depend`, or `move`/`split`/`merge`) is added: decide, deliberately, between a mutual-exclusivity check across all column groups and the discriminated `jsonb` payload the schema's own migration comments have anticipated since Iteration 1. |
 
 ---
 
@@ -120,6 +122,7 @@ from the architecture documents alone is not reliable.
 | A refined backend-derived signal could be built purely from observable runtime facts — graph proximity to the declared scope, or membership in the declared `components`/`capabilities` fields — without the Work Package declaring anything new (the two directions Iteration 9's own Report named) | Iteration 11 | `McpGrant.allowedElementIds` (`src/mcp/grant.ts`) is built as `declared ∪ impactOf(declared, context_depth + 1)` — the grant already grants everything within that graph-proximity radius, so a real refusal is, by construction, always for an element outside it. Neither a proximity-based nor a declared-membership-based signal can ever produce a positive match for a genuine refusal. Found by reading the function directly, before any code was written. | Set aside entirely, not partially fixed — Iteration 11 built declared (not inferred) relevance instead; see Validated, above. |
 | No index exists on `parent_id`/`from_id`/`predecessor_id`, implying a real performance risk for `ancestry`/`impactOf`/`resolve` at scale — stated as "What We Know" in `docs/history/iteration-10/SCOPE.md` | Iteration 10 | Reading `db/migrations/0007_graph.sql` directly: all three traversals join their recursive CTE against the *leading* column of an existing composite primary key, already index-backed for free. The genuinely uncovered columns are narrower (`element_provision.capability_id`, `decision_scope.element_id`, `repository_component.component_id`), and even those show no measurable effect at the tested scale. | `investigate-graph-scale.ts` was written testing the corrected, narrower suspect list, not the original broader one; no index was added, since none was warranted by the resulting measurements. |
 | `governanceOfElements`'s anchor set widens with a wide execution profile's `context_depth` (via `impactOf`), making profile width the real driver of its N-sequential-round-trips cost | Iteration 10 | Reading `src/workpackage/build.ts` directly: Step 4's `impactOf`-widened `impactedComponents` set feeds a separate field (for a future run-scoped MCP grant) and is never merged into the governance anchor set built in Step 6. The real lever is a task affecting many capabilities directly, not profile widening. | `investigate-graph-scale.ts` builds the anchor set exactly as `build.ts` does (`resolvedCapabilities ∪ resolvedComponents`, default profile) and tests both a typical single-capability task and one task deliberately affecting many capabilities directly. |
+| Today's only architecture-authoring path is a one-shot bulk YAML import via `importArchitecture`, which fails if re-run against an already-populated graph — Open Question #6's original framing | Iteration 12 | Reading `src/proposal/proposal.ts` directly: `applyProposal`'s `create` operation already mints a single element into an already-populated graph, transactionally, gated by the proposal lifecycle — validated since Iteration 1. `importArchitecture`'s lack of conflict-handling is real, but it is the seed path, not the only path; the question conflated the two. | The real gap was narrower: no operation could make a newly minted element *usable* by establishing `provides`/`dependsOn`, attaching governance, or renaming it. `provide` closes the `provides` gap (see Validated, above); the rest remain named, disclosed deferrals, not rediscovered later. |
 
 ---
 
@@ -173,47 +176,20 @@ one architectural bet.
    known answer — see Unproven, above.
 6. **How would a Product Owner or Architect grow an existing project's
    architecture graph incrementally, rather than only bulk-importing it
-   once from a single YAML file?** Raised in this session while discussing
-   what a real PO/architect interface to Nexus would need:
-   `importArchitecture` (`src/import/architecture.ts`) is a plain `insert`
-   with no conflict handling — re-running it against an already-populated
-   graph fails, so today's only authoring path is a one-shot seed, not an
-   incremental one. **Not prioritized for now**: this project validates
-   foundational assumptions before building higher-level functionality on
-   top of them, and Open Question #3 (graph scale) is more foundational —
-   an authoring path for a graph that has not been shown to hold at real
-   scale would be built on an unproven foundation. No iteration currently
-   scoped.
-
-7. **Where do Technology Profiles — architecture-governed configuration
-   for a Product's language, runtime, build system, framework, testing
-   profile, CI profile, and containerization profile — enter the
-   roadmap, and what must be validated first?** Raised in this session
-   while separating strategic technology decisions from routine delivery
-   work. Proposed shape: a `tech.*` catalog (initially one seeded row,
-   `tech.java24-spring`) attached to a Product, created or modified only
-   via an ADR-gated proposal (reusing the `Decision`/`decision_scope`
-   mechanism already validated for `adr.*`), selected without an ADR; no
-   component-level override and no portfolio-reporting surface in the
-   first slice. **Not prioritized as an immediate implementation
-   target**: its governance half depends on Open Question #6's authoring
-   API existing first, so profile selection rides a validated general
-   write path instead of a bespoke one-off; its generation half —
-   repository generation actually consuming the profile to emit
-   language/build/CI/container scaffolding — would extend `render()`
-   (§10.4, `MVP_ARCHITECTURE_V2.md`) well beyond what it is validated to
-   produce today (generic metadata/snapshot/CI-workflow/hint files only),
-   and rests on Repository Bootstrap's own still-Unproven push/branch/PR
-   path at real scale (see Unproven, above). Building either half now
-   would stack new capability on an unproven foundation. A naming
-   collision risk was also flagged during review: this is a
-   *technology*-stack "runtime," distinct from — and easily confused
-   with — the existing *agent*-runtime "Runtime Integration" context and
-   `WorkPackageProfile`; whoever specs this as a real ADR should
-   disambiguate explicitly rather than relying on the `tech.*` ID prefix
-   alone. No iteration currently scoped; tentatively sequenced after the
-   authoring API (governance slice) with generation-consumption deferred
-   further still. See `docs/ROADMAP.md` for the current placement.
+   once from a single YAML file?** Narrowed by Iteration 12: the
+   incremental *write path* already existed (`applyProposal`'s `create`
+   operation, validated since Iteration 1) and the specific gap it left —
+   a minted element with no way to become usable — is now closed for
+   `provides` edges (see Validated, above). What survives is no longer
+   "does an incremental path exist," but: **is the resulting
+   `create`/`retire`/`provide` mechanism usable by a real Product Owner
+   or Architect**, given it is only reachable today as raw
+   `POST /proposals` JSON? That is Iteration 13's own scoped territory
+   (the authoring API). A secondary, smaller thread survives alongside
+   it: whether `depend` (`element_dependency`), Decision/Constraint
+   attachment, or element renaming are ever actually needed, each
+   deliberately left unimplemented pending a concrete scenario rather
+   than built speculatively (see Unproven, `docs/history/iteration-12/LESSONS.md`).
 
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to
@@ -288,6 +264,18 @@ iteration, were found structurally incapable of ever working — not
 merely unproven — before any code was written (see Invalidated, above).
 Replaced above by the narrower question of whether the field can be
 populated correctly outside of hand-authoring a known answer.
+
+Resolved as of Iteration 12, narrowed rather than removed: *how would a
+Product Owner or Architect grow an existing project's architecture graph
+incrementally?* — the incremental write path already existed
+(`applyProposal`'s `create` operation, validated since Iteration 1); the
+specific, demonstrated gap it left — a minted element that could not yet
+become usable — is now closed for `provides` edges via a new `provide`
+operation (see Validated, above). The original framing (no incremental
+path exists at all) was found wrong before any code was written, not
+merely imprecise (see Invalidated, above). Replaced above by the
+narrower question of whether the resulting mechanism is usable by a real
+PO/architect, which is Iteration 13's own scoped territory.
 
 A note on numbering, added after this document's own numbered rankings
 were twice quoted stale in other files' prose (`docs/history/iteration-2/`

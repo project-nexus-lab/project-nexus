@@ -25,10 +25,12 @@ following it blindly.
    graph proximity, correctly distinguishes a task-blocking refusal from
    one an agent legitimately worked around. See
    `docs/history/iteration-11/`.
-2. **Iteration 12** (scoped) — Incremental architecture authoring: a
-   write path to grow an existing project's architecture graph over
-   time, rather than only bulk-importing once via `importArchitecture`.
-   See `docs/history/iteration-12/SCOPE.md`.
+2. **Iteration 12** (closed) — Incremental architecture authoring.
+   Scoping found the write path already existed (`applyProposal`'s
+   `create` operation, since Iteration 1); the real, narrower gap was
+   that a minted element couldn't yet become *usable* — closed for
+   `Component provides Capability` via a new `provide` operation. See
+   `docs/history/iteration-12/`.
 3. **Iteration 13** — Architecture/PO authoring API, building on
    Iteration 12's incremental write path.
 4. **Iteration 14** — First architecture UI, building on Iteration 13's
