@@ -40,7 +40,21 @@ following it blindly.
    not originally planned (`/architecture/:id/providers`) turned out
    indispensable; one that was planned (`GET /architecture/:id`) went
    unused. See `docs/history/iteration-13/`.
-4. **Iteration 14** — First architecture UI, building on Iteration 13's
+4. **Iteration 14a** (closed) — Can `relatedElements` be populated
+   correctly, and by which mechanism? Resolved Open Question #5's core
+   claim: a plain, human-declared table
+   (`work.work_item_related_element`), read by `buildWorkPackage()` for
+   the first time, reproduces Iteration 9/11's own known-correct values
+   exactly and leaves their validated classification unchanged, confirmed
+   by two live runs. Automatic derivation from graph structure was ruled
+   out on direct evidence (neither reusable scenario carries a graph edge
+   distinguishing required from optional — both are structurally
+   identical to each other). One thread survives, carried forward from
+   Iteration 11's own `/review`, unrelated to this iteration's own
+   findings: whether an *incomplete* declared set can still cause silent
+   misclassification — untested by design, since both reused scenarios
+   are complete by construction. See `docs/history/iteration-14a/`.
+5. **Iteration 14** — First architecture UI, building on Iteration 13's
    API. `apps/frontend` is still an empty placeholder as of Iteration 10.
    Iteration 13's own investigation names concrete starting input, not
    just "build a UI": automate the product → domain → subsystem →
@@ -48,7 +62,7 @@ following it blindly.
    list calls, and decide whether provider/unprovided status needs a new
    HTTP endpoint or can be synthesized client-side (see
    `docs/history/iteration-13/REPORT.md`).
-5. **Iteration 15** — Technology Profiles, governed-configuration slice
+6. **Iteration 15** — Technology Profiles, governed-configuration slice
    only: a `tech.*` catalog entry (language, runtime, build system,
    framework, testing profile, CI profile, containerization profile)
    attached to a Product, created/modified only via an ADR-gated
@@ -73,6 +87,17 @@ mechanism of its own, and its heavier half — repository generation
 actually consuming the profile — stays deferred behind Repository
 Bootstrap's own still-Unproven push/branch/PR-at-scale question (see
 `docs/PROJECT_KNOWLEDGE.md`, Unproven).
+
+Iteration 14a was inserted ahead of 14, not appended after it, on a
+roadmap-reconciliation pass: Open Question #5 (`relatedElements`
+population) had its stated precondition satisfied since Iteration 12
+but was never revisited while attention moved to fresher findings — a
+recency bias this project's own review discipline exists to catch, not
+a deliberate deferral. It doesn't depend on Iteration 14's UI, it bears
+on `RunBlocked` classification correctness (a higher architectural-risk
+question than UI ergonomics), and folding it into 14 instead would blur
+Execution-context work into an Architecture-UI iteration — so it gets
+its own slot, sequenced first.
 
 ## Future, not yet scoped
 
