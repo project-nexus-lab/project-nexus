@@ -67,31 +67,30 @@ following it blindly.
    new endpoint — client-side, per-capability fetching was sufficient at
    this project's own seeded scale (untested at real scale). No proposal
    UI, no writes, no auth. See `docs/history/iteration-14/`.
-6. **Iteration 15** (scoped) — Technology Profiles, governed-configuration
+6. **Iteration 15** (closed) — Technology Profiles, governed-configuration
    slice only. Revised by an architecture consolidation pass ahead of
    scoping: **not** a flat Product→profile attachment reusing the
    Decision/governance mechanism (a composite catalog id forced by that
    shape doesn't decompose into queryable facts, and the general
    nearest-ancestor-wins resolution it would borrow has nothing to
    resolve for a single attachment point) — instead, category-scoped
-   assignments (`Product × Category → Technology Profile`), with only
-   the `backend` category actually populated (`tech.java24-gradle`:
-   language, version, build system — corrected from an earlier
-   `tech.java24-spring` sketch, which baked an unmodeled framework
-   dimension into the id; see `docs/history/iteration-15/SCOPE.md`). The category table exists in full
-   from day one so adding `frontend`/`infrastructure`/`data` later is
-   additive, not a migration. Whether Technology Profile governance
-   reuses `architecture.change_operation` (which would make it the
-   fourth operation type sharing that table's disclosed,
-   not-mutually-exclusive schema, `docs/history/iteration-12/LESSONS.md`)
-   or uses a separate mechanism is an explicit prerequisite decision for
-   this iteration's own scoping, not something to inherit by default.
-   Explicitly excludes component-level overrides, portfolio reporting,
-   repository generation actually consuming the profile, and
-   frontend/infrastructure/data functionality beyond the category table
-   itself (all named future work). See
-   `docs/history/iteration-15/SCOPE.md` and `docs/PROJECT_KNOWLEDGE.md`
-   Open Question #7.
+   assignments (`Product × Category → Technology Profile`), resolved by
+   reusing the existing `ancestry()` traversal unmodified, with only the
+   `backend` category actually populated (`tech.java24-gradle`: language,
+   version, build system). The category table exists in full from day
+   one so adding `frontend`/`infrastructure`/`data` later is additive,
+   not a migration. The prerequisite governance decision was resolved,
+   not inherited by default: creating or modifying a profile requires
+   citing an existing, `accepted` `architecture.decision` row, checked
+   at write time — neither extending `architecture.change_operation`
+   (would have been a fourth operation type on a table already flagged
+   for a mutual-exclusivity fix, `docs/history/iteration-12/LESSONS.md`)
+   nor a dedicated proposal lifecycle (over-engineered for an assignment
+   with no cascading side effects). Explicitly excludes component-level
+   overrides, portfolio reporting, repository generation actually
+   consuming the profile, and frontend/infrastructure/data functionality
+   beyond the category table itself (all named future work). See
+   `docs/history/iteration-15/`.
 
 ## Why this order
 
