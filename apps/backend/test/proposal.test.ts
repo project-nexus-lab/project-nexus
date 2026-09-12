@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import type { NexusDb } from "../src/db/client.js";
+import { unprovidedCapabilities } from "../src/graph/alignment.js";
 import {
   applyProposal,
   approveProposal,
@@ -71,6 +72,81 @@ test("draftProposal validates authoredBy, operation shape, and id/kind agreement
       }),
     (err) => err instanceof InvalidProposalError,
   );
+  await assert.rejects(
+    () =>
+      draftProposal(db, {
+        intent: "x",
+        authoredBy: "human:a",
+        operations: [{ op: "provide", provideComponentId: "comp.invoice-service" }], // missing provideCapabilityId
+      }),
+    (err) => err instanceof InvalidProposalError,
+  );
+});
+
+test("'provide' operation establishes Component provides Capability transactionally, referencing elements minted by 'create' operations earlier in the same proposal (Iteration 12)", async () => {
+  // Deliberately mints both ends of the provision edge in this same
+  // proposal — the exact ordering risk docs/history/iteration-12/SCOPE.md
+  // named directly ("a provide operation naming a mintId from an earlier
+  // create operation... before that id is visible"). Uses fresh ids, not
+  // any seeded capability, so it cannot affect later tests sharing `db`.
+  const { id } = await draftProposal(db, {
+    intent: "mint a component and a capability, then make the component provide it",
+    authoredBy: "human:alice",
+    operations: [
+      {
+        op: "create",
+        mintId: "comp.provide-demo",
+        mintKind: "component",
+        mintParentId: "subsys.invoice",
+        mintName: "Provide Demo Component",
+      },
+      {
+        op: "create",
+        mintId: "cap.provide-demo",
+        mintKind: "capability",
+        mintParentId: "subsys.invoice",
+        mintName: "Provide Demo Capability",
+      },
+      {
+        op: "provide",
+        provideComponentId: "comp.provide-demo",
+        provideCapabilityId: "cap.provide-demo",
+        provideIsPrimary: true,
+      },
+    ],
+  });
+  await submitProposal(db, id);
+  await approveProposal(db, id, "human:bob");
+
+  const result = await applyProposal(db, id);
+  assert.deepEqual(result.mintedIds, ["comp.provide-demo", "cap.provide-demo"]);
+  assert.deepEqual(result.providedLinks, [
+    { componentId: "comp.provide-demo", capabilityId: "cap.provide-demo" },
+  ]);
+
+  const { rows } = await db.query<{ is_primary: boolean }>(
+    `select is_primary from architecture.element_provision
+     where component_id = 'comp.provide-demo' and capability_id = 'cap.provide-demo'`,
+  );
+  assert.deepEqual(rows, [{ is_primary: true }]);
+});
+
+test("'provide' operation is rejected by the DB when it names an id of the wrong kind (kind-checked FK is the final word, §7.2)", async () => {
+  const { id } = await draftProposal(db, {
+    intent: "attempt to make a capability provide a capability",
+    authoredBy: "human:a",
+    operations: [
+      {
+        op: "provide",
+        provideComponentId: "cap.invoice-discount", // wrong kind: a capability, not a component
+        provideCapabilityId: "cap.invoice-export",
+      },
+    ],
+  });
+  await submitProposal(db, id);
+  await approveProposal(db, id, "human:a");
+
+  await assert.rejects(() => applyProposal(db, id));
 });
 
 test("full lifecycle: draft -> proposed -> approved -> applied mints an element transactionally", async () => {
@@ -308,7 +384,15 @@ test("end to end: a Work Package gate failure blocks a Task, a proposal unblocks
   assert.ok(gateFailure instanceof WorkPackageGateError);
   assert.equal((gateFailure as WorkPackageGateError).reason, "unprovided-capability");
 
+  // confirmed unprovided before any proposal is applied (Alignment, §8.5)
+  const unprovidedBefore = await unprovidedCapabilities(db);
+  assert.ok(unprovidedBefore.some((c) => c.capability_id === "cap.invoice-export"));
+
   // "generation gate refuses -> draft ArchitectureChangeProposal -> Task status -> blocked" (§5.4)
+  // Iteration 12: the proposal now mints the component *and* wires it to
+  // provide the missing capability in the same governed, atomic step —
+  // previously only the mint was possible, leaving the capability
+  // unprovided after apply (see docs/history/iteration-12/SCOPE.md).
   const { id: proposalId } = await draftProposal(db, {
     intent: "provide cap.invoice-export from a new component",
     authoredBy: "run:demo-agent",
@@ -319,6 +403,12 @@ test("end to end: a Work Package gate failure blocks a Task, a proposal unblocks
         mintKind: "component",
         mintParentId: "subsys.invoice",
         mintName: "Export Service",
+      },
+      {
+        op: "provide",
+        provideComponentId: "comp.export-service",
+        provideCapabilityId: "cap.invoice-export",
+        provideIsPrimary: true,
       },
     ],
   });
@@ -333,6 +423,9 @@ test("end to end: a Work Package gate failure blocks a Task, a proposal unblocks
   await approveProposal(db, proposalId, "human:reviewer");
   const applied = await applyProposal(db, proposalId);
   assert.deepEqual(applied.releasedTaskIds, ["task.needs-export"]);
+  assert.deepEqual(applied.providedLinks, [
+    { componentId: "comp.export-service", capabilityId: "cap.invoice-export" },
+  ]);
 
   // ProposalApplied -> blocked Tasks released for re-gating (now 'draft')
   const released = (
@@ -343,13 +436,14 @@ test("end to end: a Work Package gate failure blocks a Task, a proposal unblocks
   assert.equal(released?.status, "draft");
   assert.equal(released?.blocked_by_proposal_id, null);
 
-  // the minted component must still actually provide the capability — a
-  // create operation mints an element, it does not wire provision; that is
-  // a deliberate, disclosed scope boundary (see this iteration's report)
-  await db.query(
-    `insert into architecture.element_provision (component_id, capability_id, is_primary)
-     values ('comp.export-service', 'cap.invoice-export', true)`,
-  );
+  // the capability is no longer unprovided, confirmed via the same
+  // Alignment query, not merely by re-reading the row this test just wrote
+  const unprovidedAfter = await unprovidedCapabilities(db);
+  assert.ok(!unprovidedAfter.some((c) => c.capability_id === "cap.invoice-export"));
+
+  // a repository mapping still has no authoring path of its own (out of
+  // this iteration's scope, see SCOPE.md's Explicit Deferrals) — inserted
+  // directly so the demonstration can reach a real, generated Work Package
   await db.query(
     `insert into repo.repository_component (repository_id, component_id, is_primary)
      values ('repo.billing-service', 'comp.export-service', false)`,

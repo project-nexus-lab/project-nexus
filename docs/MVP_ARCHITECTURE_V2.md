@@ -472,10 +472,11 @@ to `execution.execution_run` would point Architecture → Execution, against
 |---|---|---|
 | create | **yes** | without it the deadlock stands |
 | retire | **yes** | needed for any real change |
+| provide | **yes** | added Iteration 12 — `create` alone mints an element but does not make it *usable*: a component minted to satisfy a missing capability still failed `buildWorkPackage`'s gate until it also provides that capability. Writes into the existing `element_provision` table (§4.2); no new invariant |
 | move | no | reparenting; iteration 2 |
 | split | no | iteration 2; **the succession table exists from day one** |
 | merge | no | iteration 2 |
-| rename | n/a | `name` is mutable — R-4 makes rename a non-event |
+| rename | n/a | `name` is mutable — R-4 makes rename a non-event, but no operation writes it yet (Iteration 12 left this disclosed, not fixed) |
 
 ### 5.4 The unblocking flow
 
@@ -707,24 +708,32 @@ create table architecture.change_proposal (
 );
 
 create table architecture.change_operation (
-  id                  uuid primary key default gen_random_uuid(),
-  proposal_id         text not null references architecture.change_proposal(id),
-  ordinal             int  not null,
-  op                  text not null check (op in ('create','retire')),
-  target_id           text references architecture.element(id),      -- retire
-  mint_id             text,                                          -- create
-  mint_kind           text,
-  mint_parent_id      text references architecture.element(id),
-  mint_name           text,
-  supersedes_id       text references architecture.element(id),
-  requires_repository boolean not null default false,
+  id                    uuid primary key default gen_random_uuid(),
+  proposal_id           text not null references architecture.change_proposal(id),
+  ordinal               int  not null,
+  op                    text not null check (op in ('create','retire','provide')),
+  target_id             text references architecture.element(id),      -- retire
+  mint_id               text,                                          -- create
+  mint_kind             text,
+  mint_parent_id        text references architecture.element(id),
+  mint_name             text,
+  supersedes_id         text references architecture.element(id),
+  requires_repository   boolean not null default false,
+  provide_component_id  text,      -- provide; no FK — may name a mint_id from
+  provide_capability_id text,      -- earlier in the same proposal, not yet committed
+  provide_is_primary    boolean not null default false,
   unique (proposal_id, ordinal),
-  check (case op when 'retire' then target_id is not null
-                 when 'create' then mint_id is not null
+  check (case op when 'retire'  then target_id is not null
+                 when 'create'  then mint_id is not null
                                  and mint_kind is not null
-                                 and mint_name is not null end)
+                                 and mint_name is not null
+                 when 'provide' then provide_component_id is not null
+                                 and provide_capability_id is not null end)
 );
--- iteration 2, when move/split/merge arrive, this likely becomes a
+-- provide (Iteration 12) writes into the existing element_provision table
+-- (§4.2) unchanged; that table's own kind-checked FKs are the final word,
+-- checked at apply time, not here — the same reason mint_id itself has no
+-- FK. iteration 2, when move/split/merge arrive, this likely becomes a
 -- discriminated jsonb payload
 
 create table architecture.element_succession (

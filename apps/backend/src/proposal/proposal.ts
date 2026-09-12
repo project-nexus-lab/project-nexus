@@ -15,9 +15,18 @@ import { releaseBlockedTasks } from "../work/lifecycle.js";
  * `move`, `split`, and `merge` operations are deliberately out of scope
  * here, exactly as §5.3 scopes them to iteration 2 — the succession table
  * exists from day one (§5.5) so that decision costs nothing later, but nothing
- * below needs it. Validating the proposal model requires only `create` and
- * `retire`, which is all the schema's `change_operation.op` check constraint
- * has ever allowed.
+ * below needs it. Validating the proposal model initially required only
+ * `create` and `retire`.
+ *
+ * `provide` was added in Iteration 12 (`docs/history/iteration-12/SCOPE.md`):
+ * minting a component to satisfy a missing capability is not, on its own,
+ * enough to make that capability usable — `buildWorkPackage`'s gate and
+ * `unprovidedCapabilities()` (`src/graph/alignment.ts`) both check for a
+ * real `element_provision` row, not merely the component's existence.
+ * `provide` writes into that existing table unchanged; its own
+ * kind-checked foreign keys and at-most-one-primary-provider index remain
+ * the final word, the same discipline `create`/`retire` already follow
+ * for containment and retirement.
  */
 
 export class InvalidProposalError extends Error {
@@ -59,7 +68,7 @@ export class RetirementRefusedError extends Error {
 type ArchitectureKind = "product" | "domain" | "subsystem" | "component" | "capability";
 
 export interface ProposalOperationInput {
-  op: "create" | "retire";
+  op: "create" | "retire" | "provide";
   // create:
   mintId?: string;
   mintKind?: ArchitectureKind;
@@ -69,6 +78,10 @@ export interface ProposalOperationInput {
   requiresRepository?: boolean;
   // retire:
   targetId?: string;
+  // provide (Component provides Capability, R2 §4.2):
+  provideComponentId?: string;
+  provideCapabilityId?: string;
+  provideIsPrimary?: boolean;
 }
 
 export interface DraftProposalInput {
@@ -102,6 +115,12 @@ function validateOperation(op: ProposalOperationInput, index: number): void {
     if (!op.targetId) {
       throw new InvalidProposalError(`operation ${index}: 'retire' requires targetId`);
     }
+  } else if (op.op === "provide") {
+    if (!op.provideComponentId || !op.provideCapabilityId) {
+      throw new InvalidProposalError(
+        `operation ${index}: 'provide' requires provideComponentId and provideCapabilityId`,
+      );
+    }
   } else {
     throw new InvalidProposalError(`operation ${index}: unknown op '${(op as { op: string }).op}'`);
   }
@@ -132,8 +151,9 @@ export async function draftProposal(
     await db.query(
       `insert into architecture.change_operation
          (proposal_id, ordinal, op, target_id, mint_id, mint_kind, mint_parent_id, mint_name,
-          supersedes_id, requires_repository)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          supersedes_id, requires_repository, provide_component_id, provide_capability_id,
+          provide_is_primary)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         id,
         index,
@@ -145,6 +165,9 @@ export async function draftProposal(
         op.mintName ?? null,
         op.supersedesId ?? null,
         op.requiresRepository ?? false,
+        op.provideComponentId ?? null,
+        op.provideCapabilityId ?? null,
+        op.provideIsPrimary ?? false,
       ],
     );
   }
@@ -271,7 +294,7 @@ async function assertRetirementAllowed(
 
 interface ChangeOperationRow {
   ordinal: number;
-  op: "create" | "retire";
+  op: "create" | "retire" | "provide";
   target_id: string | null;
   mint_id: string | null;
   mint_kind: string | null;
@@ -279,12 +302,17 @@ interface ChangeOperationRow {
   mint_name: string | null;
   supersedes_id: string | null;
   requires_repository: boolean;
+  provide_component_id: string | null;
+  provide_capability_id: string | null;
+  provide_is_primary: boolean;
 }
 
 export interface ApplyProposalResult {
   proposalId: string;
   mintedIds: string[];
   retiredIds: string[];
+  /** Provision edges established by this proposal's `provide` operations (Iteration 12). */
+  providedLinks: Array<{ componentId: string; capabilityId: string }>;
   /** Tasks previously blocked on this proposal, now released back to 'draft' (§2.2). */
   releasedTaskIds: string[];
 }
@@ -306,7 +334,8 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
 
   const { rows: operations } = await db.query<ChangeOperationRow>(
     `select ordinal, op, target_id, mint_id, mint_kind, mint_parent_id, mint_name,
-            supersedes_id, requires_repository
+            supersedes_id, requires_repository, provide_component_id, provide_capability_id,
+            provide_is_primary
      from architecture.change_operation
      where proposal_id = $1
      order by ordinal`,
@@ -322,6 +351,7 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
   return db.transaction(async (tx) => {
     const mintedIds: string[] = [];
     const retiredIds: string[] = [];
+    const providedLinks: Array<{ componentId: string; capabilityId: string }> = [];
 
     for (const op of operations) {
       if (op.op === "create") {
@@ -338,6 +368,15 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
             [op.supersedes_id, op.mint_id, proposalId],
           );
         }
+      } else if (op.op === "provide") {
+        const componentId = op.provide_component_id as string;
+        const capabilityId = op.provide_capability_id as string;
+        await tx.query(
+          `insert into architecture.element_provision (component_id, capability_id, is_primary)
+           values ($1, $2, $3)`,
+          [componentId, capabilityId, op.provide_is_primary],
+        );
+        providedLinks.push({ componentId, capabilityId });
       } else {
         const targetId = op.target_id as string;
         await assertRetirementAllowed(tx, targetId, supersededByThisProposal.has(targetId));
@@ -365,6 +404,6 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
 
     const releasedTaskIds = await releaseBlockedTasks(tx, proposalId);
 
-    return { proposalId, mintedIds, retiredIds, releasedTaskIds };
+    return { proposalId, mintedIds, retiredIds, providedLinks, releasedTaskIds };
   });
 }
