@@ -1,5 +1,6 @@
 import type { NexusDb } from "../db/client.js";
-import { ancestry, capabilitiesOf, implementationPath } from "../graph/traversals.js";
+import { getElement, listElements } from "../graph/elements.js";
+import { ancestry, capabilitiesOf, implementationPath, providersOf } from "../graph/traversals.js";
 import { buildGrant, type McpGrant } from "../mcp/grant.js";
 import { getAncestry, getCapabilitiesOf } from "../mcp/tools.js";
 import {
@@ -7,6 +8,8 @@ import {
   approveProposal,
   draftProposal,
   type DraftProposalInput,
+  getProposalDetail,
+  listProposals,
   rejectProposal,
   submitProposal,
 } from "../proposal/proposal.js";
@@ -38,9 +41,30 @@ export function buildRoutes(db: NexusDb): Router {
     body: await capabilitiesOf(db, ctx.params.id as string),
   }));
 
+  router.get("/architecture/:id/providers", async (ctx) => ({
+    status: 200,
+    body: await providersOf(db, ctx.params.id as string),
+  }));
+
   router.get("/tasks/:id/implementation-path", async (ctx) => ({
     status: 200,
     body: await implementationPath(db, ctx.params.id as string),
+  }));
+
+  // --- Architecture discovery (Iteration 13, plain reads for humans; not
+  // grant-gated MCP — see docs/history/iteration-13/SCOPE.md) -------------
+
+  router.get("/architecture/:id", async (ctx) => ({
+    status: 200,
+    body: await getElement(db, ctx.params.id as string),
+  }));
+
+  router.get("/architecture", async (ctx) => ({
+    status: 200,
+    body: await listElements(db, {
+      kind: ctx.query.get("kind") ?? undefined,
+      parent: ctx.query.get("parent") ?? undefined,
+    }),
   }));
 
   // --- Work Package generation (§11) --------------------------------------
@@ -97,6 +121,20 @@ export function buildRoutes(db: NexusDb): Router {
     const result = await applyProposal(db, ctx.params.id as string);
     return { status: 200, body: result };
   });
+
+  // --- Proposal discovery/review (Iteration 13) ---------------------------
+  // Nothing before this iteration let a reviewer see a proposal's own
+  // operations before approving it, or see which proposals await review.
+
+  router.get("/proposals/:id", async (ctx) => ({
+    status: 200,
+    body: await getProposalDetail(db, ctx.params.id as string),
+  }));
+
+  router.get("/proposals", async (ctx) => ({
+    status: 200,
+    body: await listProposals(db, { state: ctx.query.get("state") ?? undefined }),
+  }));
 
   // --- MCP grant enforcement (§9.5) ---------------------------------------
   // Enabling layer, same status as §10.5 in Iteration 1: makes a refusal

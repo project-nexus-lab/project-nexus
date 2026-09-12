@@ -1,3 +1,4 @@
+import { ElementNotFoundError } from "../graph/elements.js";
 import { InvalidIdError } from "../ids/ids.js";
 import { GrantRefusedError } from "../mcp/grant.js";
 import {
@@ -30,7 +31,11 @@ export function statusForError(err: unknown): number {
   ) {
     return 400;
   }
-  if (err instanceof ProposalNotFoundError || err instanceof TaskNotFoundError) {
+  if (
+    err instanceof ProposalNotFoundError ||
+    err instanceof TaskNotFoundError ||
+    err instanceof ElementNotFoundError
+  ) {
     return 404;
   }
   if (err instanceof ProposalNotBlockableError) {

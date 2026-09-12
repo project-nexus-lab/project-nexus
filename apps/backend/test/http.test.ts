@@ -225,3 +225,166 @@ test("POST /grants issues a grant, then in-grant and out-of-grant tool calls beh
   assert.equal(outOfGrant.body.error, "GrantRefusedError");
   assert.equal(outOfGrant.body.reason, "out-of-grant");
 });
+
+// --- Iteration 13: architecture/proposal discovery and review -------------
+// docs/history/iteration-13/SCOPE.md — a plain, ungated read surface (not
+// grant-gated MCP) so a human can discover what exists and review a
+// proposal before approving it. See
+// src/cli/investigate-po-authoring-workflow.ts for the qualitative
+// findings (step count, friction, indispensable endpoints, missing
+// information) this surface was validated against.
+
+test("GET /architecture/:id returns element detail with childIds", async () => {
+  const { status, body } = await call("GET", "/architecture/subsys.invoice");
+  assert.equal(status, 200);
+  assert.equal(body.kind, "subsystem");
+  assert.equal(body.name, "Invoice");
+  assert.equal(body.status, "active");
+  assert.equal(body.parentId, "dom.billing");
+  // Superset check, not exact equality: earlier tests in this file (shared
+  // db across the whole file) mint their own components under this same
+  // subsystem, so the seed's own children are a floor, not the ceiling.
+  for (const expected of [
+    "cap.create-invoice",
+    "cap.invoice-discount",
+    "cap.invoice-export",
+    "comp.invoice-service",
+    "comp.payment-service",
+  ]) {
+    assert.ok(body.childIds.includes(expected), `expected childIds to include ${expected}`);
+  }
+});
+
+test("GET /architecture/:id for an unknown id returns 404", async () => {
+  const { status, body } = await call("GET", "/architecture/comp.does-not-exist");
+  assert.equal(status, 404);
+  assert.equal(body.error, "ElementNotFoundError");
+});
+
+test("GET /architecture lists elements, bounded by kind and parent filters", async () => {
+  const byKind = await call("GET", "/architecture?kind=product");
+  assert.equal(byKind.status, 200);
+  assert.deepEqual(byKind.body.map((e: { id: string }) => e.id), ["prod.trade-platform"]);
+
+  const byParent = await call("GET", "/architecture?kind=component&parent=subsys.invoice");
+  assert.equal(byParent.status, 200);
+  const parentIds = byParent.body.map((e: { id: string }) => e.id);
+  // Superset check — see the childIds test above for why.
+  assert.ok(parentIds.includes("comp.invoice-service"));
+  assert.ok(parentIds.includes("comp.payment-service"));
+});
+
+test("GET /architecture/:id/providers wraps providersOf (Capability <- PROVIDES <- Component)", async () => {
+  const provided = await call("GET", "/architecture/cap.invoice-discount/providers");
+  assert.equal(provided.status, 200);
+  assert.deepEqual(provided.body, [{ component_id: "comp.invoice-service", is_primary: true }]);
+
+  const unprovided = await call("GET", "/architecture/cap.invoice-export/providers");
+  assert.equal(unprovided.status, 200);
+  assert.deepEqual(unprovided.body, []);
+});
+
+test("GET /proposals/:id returns the proposal's own operations, unreachable before this iteration", async () => {
+  const draft = await call("POST", "/proposals", {
+    intent: "mint and provide, then review before approving",
+    authoredBy: "human:reviewer-test",
+    operations: [
+      {
+        op: "create",
+        mintId: "comp.http-review",
+        mintKind: "component",
+        mintParentId: "subsys.invoice",
+        mintName: "HTTP Review",
+      },
+      {
+        op: "provide",
+        provideComponentId: "comp.http-review",
+        provideCapabilityId: "cap.invoice-export",
+        provideIsPrimary: true,
+      },
+    ],
+  });
+
+  const { status, body } = await call("GET", `/proposals/${draft.body.id}`);
+  assert.equal(status, 200);
+  assert.equal(body.state, "draft");
+  assert.equal(body.authoredBy, "human:reviewer-test");
+  assert.equal(body.approvedBy, null);
+  assert.deepEqual(body.operations, [
+    { ordinal: 0, op: "create", mintId: "comp.http-review", mintKind: "component", mintParentId: "subsys.invoice", mintName: "HTTP Review" },
+    { ordinal: 1, op: "provide", provideComponentId: "comp.http-review", provideCapabilityId: "cap.invoice-export", provideIsPrimary: true },
+  ]);
+});
+
+test("GET /proposals/:id for an unknown id returns 404", async () => {
+  const { status, body } = await call("GET", "/proposals/acp.00000000000000000000000000");
+  assert.equal(status, 404);
+  assert.equal(body.error, "ProposalNotFoundError");
+});
+
+test("GET /proposals lists proposals, bounded by state", async () => {
+  const draft = await call("POST", "/proposals", {
+    intent: "list-by-state fixture",
+    authoredBy: "human:list-test",
+    operations: [{ op: "create", mintId: "comp.http-list-state", mintKind: "component", mintParentId: "subsys.invoice", mintName: "X" }],
+  });
+  await call("POST", `/proposals/${draft.body.id}/submit`);
+
+  const proposed = await call("GET", "/proposals?state=proposed");
+  assert.equal(proposed.status, 200);
+  assert.ok(proposed.body.some((p: { id: string }) => p.id === draft.body.id));
+  assert.ok(proposed.body.every((p: { state: string }) => p.state === "proposed"));
+});
+
+test("PO discovery workflow: starting from only the product's name, discover, draft, review, approve, apply, and confirm — no other id hardcoded", async () => {
+  const products = await call("GET", "/architecture?kind=product");
+  const product = products.body.find((p: { name: string }) => p.name === "Trade Platform");
+  assert.ok(product, "Trade Platform must be discoverable by name alone");
+
+  const domains = await call("GET", `/architecture?kind=domain&parent=${product.id}`);
+  const domain = domains.body[0];
+
+  const subsystems = await call("GET", `/architecture?kind=subsystem&parent=${domain.id}`);
+  const subsystem = subsystems.body[0];
+
+  const capabilities = await call("GET", `/architecture?kind=capability&parent=${subsystem.id}`);
+  const capability = capabilities.body.find((c: { name: string }) => c.name === "Export Invoice");
+  assert.ok(capability, "Export Invoice must be discoverable by name under the discovered subsystem");
+
+  const providersBefore = await call("GET", `/architecture/${capability.id}/providers`);
+  assert.deepEqual(providersBefore.body, []);
+
+  const draft = await call("POST", "/proposals", {
+    intent: "PO workflow test: provide the discovered capability",
+    authoredBy: "human:po-workflow-test",
+    operations: [
+      {
+        op: "create",
+        mintId: "comp.po-test-export-service",
+        mintKind: "component",
+        mintParentId: subsystem.id,
+        mintName: "PO Test Export Service",
+      },
+      {
+        op: "provide",
+        provideComponentId: "comp.po-test-export-service",
+        provideCapabilityId: capability.id,
+        provideIsPrimary: true,
+      },
+    ],
+  });
+  assert.equal(draft.status, 201);
+
+  const review = await call("GET", `/proposals/${draft.body.id}`);
+  assert.equal(review.body.operations.length, 2);
+
+  await call("POST", `/proposals/${draft.body.id}/submit`);
+  await call("POST", `/proposals/${draft.body.id}/approve`, { approvedBy: "human:po-reviewer-test" });
+  const applied = await call("POST", `/proposals/${draft.body.id}/apply`);
+  assert.equal(applied.status, 200);
+
+  const providersAfter = await call("GET", `/architecture/${capability.id}/providers`);
+  assert.deepEqual(providersAfter.body, [
+    { component_id: "comp.po-test-export-service", is_primary: true },
+  ]);
+});

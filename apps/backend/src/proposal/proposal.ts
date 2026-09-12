@@ -407,3 +407,136 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
     return { proposalId, mintedIds, retiredIds, providedLinks, releasedTaskIds };
   });
 }
+
+/**
+ * Read-only proposal detail — Iteration 13
+ * (`docs/history/iteration-13/SCOPE.md`): before this, nothing exposed a
+ * proposal's own operations, so a reviewer had to approve blind. Only
+ * fields relevant to each operation's `op` are included, mirroring
+ * `ProposalOperationInput`'s own shape rather than exposing every raw
+ * nullable column.
+ */
+export interface ProposalOperationDetail {
+  ordinal: number;
+  op: "create" | "retire" | "provide";
+  targetId?: string;
+  mintId?: string;
+  mintKind?: string;
+  mintParentId?: string;
+  mintName?: string;
+  supersedesId?: string;
+  requiresRepository?: boolean;
+  provideComponentId?: string;
+  provideCapabilityId?: string;
+  provideIsPrimary?: boolean;
+}
+
+export interface ProposalDetail {
+  id: string;
+  intent: string;
+  state: string;
+  authoredBy: string;
+  approvedBy: string | null;
+  operations: ProposalOperationDetail[];
+}
+
+function toOperationDetail(op: ChangeOperationRow): ProposalOperationDetail {
+  const detail: ProposalOperationDetail = { ordinal: op.ordinal, op: op.op };
+  if (op.target_id !== null) detail.targetId = op.target_id;
+  if (op.mint_id !== null) detail.mintId = op.mint_id;
+  if (op.mint_kind !== null) detail.mintKind = op.mint_kind;
+  if (op.mint_parent_id !== null) detail.mintParentId = op.mint_parent_id;
+  if (op.mint_name !== null) detail.mintName = op.mint_name;
+  if (op.supersedes_id !== null) detail.supersedesId = op.supersedes_id;
+  if (op.requires_repository) detail.requiresRepository = op.requires_repository;
+  if (op.provide_component_id !== null) detail.provideComponentId = op.provide_component_id;
+  if (op.provide_capability_id !== null) detail.provideCapabilityId = op.provide_capability_id;
+  if (op.provide_is_primary) detail.provideIsPrimary = op.provide_is_primary;
+  return detail;
+}
+
+export async function getProposalDetail(
+  db: SqlExecutor,
+  proposalId: string,
+): Promise<ProposalDetail> {
+  const { rows } = await db.query<{
+    id: string;
+    intent: string;
+    state: string;
+    authored_by: string;
+    approved_by: string | null;
+  }>(
+    `select id, intent, state, authored_by, approved_by
+     from architecture.change_proposal where id = $1`,
+    [proposalId],
+  );
+  const proposal = rows[0];
+  if (!proposal) throw new ProposalNotFoundError(proposalId);
+
+  const { rows: operations } = await db.query<ChangeOperationRow>(
+    `select ordinal, op, target_id, mint_id, mint_kind, mint_parent_id, mint_name,
+            supersedes_id, requires_repository, provide_component_id, provide_capability_id,
+            provide_is_primary
+     from architecture.change_operation
+     where proposal_id = $1
+     order by ordinal`,
+    [proposalId],
+  );
+
+  return {
+    id: proposal.id,
+    intent: proposal.intent,
+    state: proposal.state,
+    authoredBy: proposal.authored_by,
+    approvedBy: proposal.approved_by,
+    operations: operations.map(toOperationDetail),
+  };
+}
+
+export interface ProposalSummary {
+  id: string;
+  intent: string;
+  state: string;
+  authoredBy: string;
+}
+
+export interface ListProposalsFilter {
+  state?: string | undefined;
+}
+
+/**
+ * Bounded proposal listing — a PO's pending-review queue. Fixed cap, no
+ * cursor pagination, same postponement `listElements`
+ * (`src/graph/elements.ts`) and §9.6 already apply to MCP.
+ */
+const LIST_PROPOSALS_LIMIT = 200;
+
+export async function listProposals(
+  db: SqlExecutor,
+  filter: ListProposalsFilter = {},
+): Promise<ProposalSummary[]> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (filter.state) {
+    params.push(filter.state);
+    conditions.push(`state = $${params.length}`);
+  }
+  const where = conditions.length > 0 ? `where ${conditions.join(" and ")}` : "";
+
+  const { rows } = await db.query<{
+    id: string;
+    intent: string;
+    state: string;
+    authored_by: string;
+  }>(
+    `select id, intent, state, authored_by from architecture.change_proposal ${where}
+     order by created_at limit ${LIST_PROPOSALS_LIMIT}`,
+    params,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    intent: r.intent,
+    state: r.state,
+    authoredBy: r.authored_by,
+  }));
+}
