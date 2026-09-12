@@ -122,6 +122,61 @@ test("a blocked work item must name its blocking proposal, and vice versa", asyn
   );
 });
 
+test("DB rejects a malformed technology_profile id (check constraint)", async () => {
+  await db.query(
+    `insert into architecture.decision (id, title, status, statement)
+     values ('adr.schema-test', 'Schema test decision', 'accepted', 'stmt')`,
+  );
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.technology_profile
+         (id, category, language, language_version, build_system, decision_id, authored_by)
+       values ('not-a-tech-id', 'backend', 'Java', '24', 'Gradle', 'adr.schema-test', 'human:x')`,
+    ),
+  );
+});
+
+test("product_technology_profile: at most one profile per (product, category) — primary key is the final word", async () => {
+  await db.query(
+    `insert into architecture.technology_profile
+       (id, category, language, language_version, build_system, decision_id, authored_by)
+     values ('tech.schema-test-a', 'backend', 'Java', '24', 'Gradle', 'adr.schema-test', 'human:x')`,
+  );
+  await db.query(
+    `insert into architecture.technology_profile
+       (id, category, language, language_version, build_system, decision_id, authored_by)
+     values ('tech.schema-test-b', 'backend', 'Kotlin', '2.0', 'Gradle', 'adr.schema-test', 'human:x')`,
+  );
+  await db.query(
+    `insert into architecture.product_technology_profile (product_id, category, profile_id)
+     values ('prod.p1', 'backend', 'tech.schema-test-a')`,
+  );
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.product_technology_profile (product_id, category, profile_id)
+       values ('prod.p1', 'backend', 'tech.schema-test-b')`,
+    ),
+  );
+});
+
+test("product_technology_profile rejects a profile whose own category does not match the assignment's (trigger)", async () => {
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.product_technology_profile (product_id, category, profile_id)
+       values ('prod.p1', 'frontend', 'tech.schema-test-a')`, // tech.schema-test-a is 'backend'
+    ),
+  );
+});
+
+test("product_technology_profile rejects a product_id that is not a 'product'-kind element (composite FK)", async () => {
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.product_technology_profile (product_id, category, profile_id)
+       values ('comp.c1', 'backend', 'tech.schema-test-a')`, // comp.c1 is a component, not a product
+    ),
+  );
+});
+
 test("execution.work_package is insert-only in intent: unique(task_id, profile_id, content_hash)", async () => {
   await db.query(
     `insert into execution.work_package_profile (id, name) values ('wpp.test', 'Test')`,

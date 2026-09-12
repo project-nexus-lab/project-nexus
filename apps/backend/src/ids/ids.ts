@@ -26,7 +26,8 @@ export type AuthoredKind =
   | "task"
   | "acceptanceCriterion"
   | "workPackageProfile"
-  | "agentRole";
+  | "agentRole"
+  | "technologyProfile";
 
 const SLUG = "[a-z0-9]+(?:-[a-z0-9]+)*";
 
@@ -47,6 +48,7 @@ export const AUTHORED_PREFIX: Record<AuthoredKind, string> = {
   acceptanceCriterion: "ac",
   workPackageProfile: "wpp",
   agentRole: "role",
+  technologyProfile: "tech",
 };
 
 const AUTHORED_PATTERN: Record<AuthoredKind, RegExp> = Object.fromEntries(
