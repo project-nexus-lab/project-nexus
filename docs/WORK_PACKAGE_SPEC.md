@@ -50,12 +50,19 @@ relatedElements:
 `relatedElements` (Iteration 11, `docs/history/iteration-11/SCOPE.md`):
 optional. Elements outside the Work Package's own resolved/granted scope
 that the task may still need, each tagged whether Nexus should treat a
-refusal on it as blocking. Declared at Work Package construction time —
-not inferred from a run, and not something an agent runtime ever writes
-or reads directly. As of Iteration 11, `buildWorkPackage()` does not yet
-populate this field from the graph; it exists so a runtime adapter can
-classify `RunBlocked` from declared relevance when the field is present,
-falling back to prior behavior when it is absent.
+refusal on it as blocking. Declared — not inferred from a run, and not
+something an agent runtime ever writes or reads directly, and (Iteration
+14a, `docs/history/iteration-14a/SCOPE.md`) not derived from graph
+structure either: neither of this field's own two validating scenarios
+(Iterations 9 and 11) encodes its required/optional distinction as a
+graph edge, so automatic derivation was ruled out on direct evidence, not
+merely left unbuilt. Since Iteration 14a, `buildWorkPackage()` populates
+this field from `work.work_item_related_element`, a plain declared table
+a human authors directly (matching `work.work_item_capability`'s own
+shape) — omitted entirely from the payload when no rows are declared,
+matching every Work Package before Iteration 14a byte-for-byte. Exists so
+a runtime adapter can classify `RunBlocked` from declared relevance when
+the field is present, falling back to prior behavior when it is absent.
 
 ---
 

@@ -34,6 +34,11 @@ export class WorkPackageGateError extends Error {
   }
 }
 
+export interface RelatedElement {
+  elementId: string;
+  required: boolean;
+}
+
 export interface WorkPackagePayload {
   id: string;
   schemaVersion: number;
@@ -47,6 +52,17 @@ export interface WorkPackagePayload {
   constraints: string[];
   acceptanceCriteria: string[];
   decisions: string[];
+  /**
+   * Iteration 14a (`docs/history/iteration-14a/SCOPE.md`): declared,
+   * human-authored (`work.work_item_related_element`), never derived
+   * from graph structure — ruled out by direct evidence, not merely
+   * deferred (neither of Iteration 9/11's own reusable scenarios encodes
+   * its required/optional distinction as a graph edge; both are
+   * structurally identical to each other). Optional and omitted entirely
+   * when empty, matching every Work Package before this iteration and
+   * every existing test fixture byte-for-byte.
+   */
+  relatedElements?: RelatedElement[];
 }
 
 export interface WorkPackageResult {
@@ -292,6 +308,22 @@ export async function buildWorkPackage(
   }
   const feature = task.parent_id;
 
+  // --- Additive step (Iteration 14a, not part of §11.2's original nine):
+  // declared relatedElements. `order by element_id` is deliberate, not
+  // decorative — canonicalize() (canonicalize.ts) only sorts arrays whose
+  // elements are all primitives; this array holds objects, so it is never
+  // reordered downstream. Determinism (§11.1) has to be guaranteed here
+  // or nowhere. -----------------------------------------------------------
+  const relatedElementRows = await db.query<{ element_id: string; required: boolean }>(
+    `select element_id, required from work.work_item_related_element
+     where work_item_id = $1 order by element_id`,
+    [taskId],
+  );
+  const relatedElements: RelatedElement[] = relatedElementRows.rows.map((r) => ({
+    elementId: r.element_id,
+    required: r.required,
+  }));
+
   // --- Step 8: Canonicalise + hash ----------------------------------------
   const content: Omit<WorkPackagePayload, "id"> = {
     schemaVersion: SCHEMA_VERSION,
@@ -305,6 +337,7 @@ export async function buildWorkPackage(
     constraints,
     acceptanceCriteria: acRows.rows.map((r) => r.id),
     decisions,
+    ...(relatedElements.length > 0 ? { relatedElements } : {}),
   };
   const hash = contentHash(content as unknown as JsonValue);
 

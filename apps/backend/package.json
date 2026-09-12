@@ -15,6 +15,7 @@
     "investigate:blocked-relevance": "tsx src/cli/investigate-blocked-relevance.ts",
     "investigate:graph-scale": "tsx src/cli/investigate-graph-scale.ts",
     "investigate:po-authoring-workflow": "tsx src/cli/investigate-po-authoring-workflow.ts",
+    "investigate:related-elements-authoring": "tsx src/cli/investigate-related-elements-authoring.ts",
     "serve": "tsx src/cli/serve.ts",
     "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"

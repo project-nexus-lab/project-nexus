@@ -235,3 +235,70 @@ test("explicit implementedIn override replaces component-derived repository reso
     await db.close();
   }
 });
+
+// --- Iteration 14a: relatedElements, declared not derived -----------------
+// docs/history/iteration-14a/SCOPE.md: buildWorkPackage() previously had no
+// relatedElements field at all; every real use of it (Iteration 11's own
+// investigate scripts) hand-authored a JS literal, bypassing generation
+// entirely. Automatic derivation from graph structure was ruled out, not
+// deferred: neither of Iteration 9/11's own reusable scenarios encodes its
+// required/optional distinction as any graph edge — both are structurally
+// identical to each other (a sibling component, same subsystem, zero
+// dependsOn edge, zero shared capability), yet one is required and the
+// other is not. Only a declared, human-authored source can express that.
+
+test("relatedElements is omitted entirely when no rows are declared, matching every Work Package before Iteration 14a", async () => {
+  const db = await seededDb();
+  try {
+    const wp = await buildWorkPackage(db, "task.invoice-discount-validation", "wpp.implementation");
+    assert.ok(!("relatedElements" in wp.payload));
+  } finally {
+    await db.close();
+  }
+});
+
+test("buildWorkPackage() populates relatedElements from work.work_item_related_element, sorted by element_id regardless of insert order", async () => {
+  const db = await seededDb();
+  try {
+    // Deliberately not related to the task's own capability/component by
+    // any graph edge — the same "no structural signal" shape as Iteration
+    // 9/11's own reusable scenarios, confirming this is genuinely a
+    // declared fact, not something impactOf or dependsOn could derive.
+    await db.query(
+      `insert into architecture.element (id, kind, parent_id, name) values ('comp.iter14a-upstream', 'component', 'subsys.invoice', 'Upstream')`,
+    );
+    await db.query(
+      `insert into architecture.element (id, kind, parent_id, name) values ('comp.iter14a-related', 'component', 'subsys.invoice', 'Related')`,
+    );
+
+    await db.query(
+      `insert into work.work_item (id, kind, parent_id, title, status) values ('task.iter14a', 'task', 'feat.invoice-discounts', 'Iteration 14a fixture', 'ready')`,
+    );
+    await db.query(
+      `insert into work.work_item_capability (work_item_id, capability_id) values ('task.iter14a', 'cap.invoice-discount')`,
+    );
+    await db.query(
+      `insert into work.acceptance_criterion (id, work_item_id, statement, ordinal) values ('ac.iter14a', 'task.iter14a', 'stmt', 0)`,
+    );
+
+    // Inserted out of element_id order on purpose: canonicalize()
+    // (canonicalize.ts) only sorts arrays whose elements are all
+    // primitives, so an array of {elementId, required} objects is never
+    // reordered downstream — buildWorkPackage()'s own `order by
+    // element_id` has to be the thing making this deterministic.
+    await db.query(
+      `insert into work.work_item_related_element (work_item_id, element_id, required) values ('task.iter14a', 'comp.iter14a-upstream', true)`,
+    );
+    await db.query(
+      `insert into work.work_item_related_element (work_item_id, element_id, required) values ('task.iter14a', 'comp.iter14a-related', false)`,
+    );
+
+    const wp = await buildWorkPackage(db, "task.iter14a", "wpp.implementation");
+    assert.deepEqual(wp.payload.relatedElements, [
+      { elementId: "comp.iter14a-related", required: false },
+      { elementId: "comp.iter14a-upstream", required: true },
+    ]);
+  } finally {
+    await db.close();
+  }
+});
