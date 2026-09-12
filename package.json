@@ -18,7 +18,8 @@
     "investigate:blocked-relevance": "npm run investigate:blocked-relevance --workspace=apps/backend",
     "investigate:graph-scale": "npm run investigate:graph-scale --workspace=apps/backend",
     "serve": "npm run serve --workspace=apps/backend --",
-    "test": "npm run test --workspace=apps/backend",
-    "typecheck": "npm run typecheck --workspace=apps/backend"
+    "dev": "npm run dev --workspace=apps/frontend --",
+    "test": "npm run test --workspace=apps/backend && npm run test --workspace=apps/frontend",
+    "typecheck": "npm run typecheck --workspace=apps/backend && npm run typecheck --workspace=apps/frontend"
   }
 }

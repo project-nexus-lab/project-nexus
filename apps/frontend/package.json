@@ -2,5 +2,27 @@
   "name": "nexus-frontend",
   "version": "0.0.0",
   "private": true,
-  "description": "Nexus Frontend — placeholder. No implementation yet; see README.md."
+  "type": "module",
+  "description": "Nexus Frontend — Iteration 14: one read-only screen over Iteration 13's discovery/review API (docs/history/iteration-14/SCOPE.md). Never a second place graph data originates or is cached as truth.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
 }

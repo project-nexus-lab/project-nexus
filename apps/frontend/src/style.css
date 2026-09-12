@@ -1,0 +1,80 @@
+/* Iteration 14: minimal, functional styling only — visual design is
+   explicitly deferred (docs/history/iteration-14/SCOPE.md). */
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 2rem;
+  color: #1a1a1a;
+}
+
+.subtitle {
+  color: #555;
+  max-width: 60ch;
+}
+
+.columns {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.nav-column {
+  min-width: 12rem;
+}
+
+.nav-column ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-column button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 0.25rem;
+}
+
+.nav-column button:hover {
+  background: #eee;
+}
+
+.nav-column button.selected {
+  background: #d8e6ff;
+  font-weight: 600;
+}
+
+.status {
+  color: #777;
+  font-style: italic;
+}
+
+.capability-detail {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.status.unprovided {
+  color: #b03030;
+  font-weight: 600;
+}
+
+.status.error {
+  color: #b03030;
+}
+
+.api-call-log {
+  margin-top: 2rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.api-call-log ol {
+  padding-left: 1.25rem;
+}

@@ -1,31 +1,45 @@
-# Nexus Frontend — placeholder
+# Nexus Frontend
 
-No implementation. This directory reserves the frontend's place in the
-workspace (`package.json` is minimal, no framework chosen, no source
-files) so that when frontend work actually starts, it starts inside an
-already-wired monorepo instead of triggering a second restructuring.
+Iteration 14 (`docs/history/iteration-14/SCOPE.md`) — one screen: browse
+the architecture graph from a product's name down to a capability, and
+see whether that capability has a provider. Read-only. Talks only to the
+discovery/review API Iteration 13 already built and validated
+(`apps/backend/src/http/routes.ts`).
 
-## Why this doesn't exist yet
+React + Vite + TypeScript — a reasoned pick, not evidence-tested (no
+prior codebase precedent existed to derive it from); see `SCOPE.md`'s
+"Decision" section for the reasoning.
 
-`docs/MVP_ARCHITECTURE_V2.md` §15 defers a web UI past Iteration 0/1; a
-frontend has no consumer to talk to until the REST layer (§16 iteration
-1a) and/or MCP servers (1e) exist. Scaffolding a framework now, with
-nothing real for it to render, would be exactly the kind of speculative
-structure `CLAUDE.md`'s Simplicity Reviewer exists to catch — deferring a
-choice is not the same as being unprepared for it (this placeholder *is*
-the preparation).
+## Running it
 
-## What it will be
+1. From `apps/backend`: `npm run migrate && npm run import && npm run serve`
+   (real backend, real seed data, port 3000).
+2. From `apps/frontend` (or the repo root, once wired into root scripts):
+   `npm run dev`.
+3. Open the printed local URL. Requests to `/architecture` and
+   `/proposals` are proxied to `localhost:3000` by `vite.config.ts` — no
+   CORS change was made to the backend to allow this (see `SCOPE.md`'s
+   "Decision" for why a dev-time proxy was chosen instead).
 
-A client of the backend's future HTTP/API surface — **never** a second
-place architecture, work, or repository data can originate or be cached
-as truth. Per `docs/NEXUS_CONSTITUTION.md`, the platform database (behind
-`apps/backend`) remains the system of truth; the frontend reads and
-displays it.
+## What it is not
 
-## When this fills in
+- Not a second place architecture, work, or repository data originates
+  or is cached as truth (`docs/NEXUS_CONSTITUTION.md`) — every screen
+  re-fetches from the backend; nothing here persists graph state.
+- Not a proposal authoring/review UI — that's explicitly deferred to a
+  later iteration (`docs/history/iteration-14/SCOPE.md`, Explicit
+  Deferrals).
+- Not authenticated — Security & Authorization Model is explicitly
+  parked (`docs/ROADMAP.md`, Standing awareness); this app is exactly as
+  ungated as the backend routes it calls.
 
-When Iteration 1a's REST endpoints exist and there's something to build a
-screen against. At that point: pick a framework, add real dependencies to
-`package.json`, add a `src/` directory, and add this app to whatever root
-scripts (`npm run dev`, etc.) make sense then — not before.
+## The API call log
+
+The running screen shows, live, every backend call it has made this
+session (`src/components/ApiCallLog.tsx`) — not a debug afterthought.
+Iteration 13 left two open questions this iteration exists to answer
+with real evidence: does `GET /architecture/:id` earn a permanent place
+in the API, and does provider/unprovided status need its own endpoint.
+The visible call log is how those questions get answered from what this
+screen actually does, not from guessing — see
+`docs/history/iteration-14/REPORT.md` for the result.
