@@ -73,6 +73,41 @@ Bootstrap's own still-Unproven push/branch/PR-at-scale question (see
   numbering, not this roadmap's).
 - A second `AgentRuntimeAdapter` beyond the Claude SDK adapter.
 
+## Standing awareness — not scheduled
+
+Deliberately kept last and outside the numbered sequence above: recorded
+so it isn't forgotten, not because it's next. No design work, ADR, or
+iteration is scoped against it until it's explicitly pulled forward.
+
+**Security & Authorization Model**
+
+- **Status**: Planned (parked).
+- **Goal**: introduce identity and authorization without requiring
+  architectural redesign.
+- **Requirements**: every action attributable; every approval
+  attributable; every proposal attributable; authorization enforced at
+  system boundaries; core domain model remains identity-provider
+  agnostic.
+- **Why it's real, not speculative**: `docs/PROJECT_KNOWLEDGE.md`'s
+  Unproven table already carries a directly related entry since
+  Iteration 1 — R-1's write-authorization boundary ("the runtime never
+  holds a write credential") holds in the data model, but nothing today
+  distinguishes "the platform, acting on a genuine `RunBlocked` event"
+  from "any HTTP caller," and `approveProposal`'s `human:<id>` /
+  `authoredBy`'s `run:<id>` principal strings are unauthenticated —
+  attributable in *shape* only, not in *enforcement*. `MVP_ARCHITECTURE_V2.md`
+  §15 separately postpones RBAC/multi-tenancy for the same
+  reason ("humans need it once teams multiply"). This item is the
+  broader umbrella both already point at.
+- **Why parked rather than scoped**: no current iteration needs it yet —
+  today's only "caller" is this project's own test suite and CLI
+  scripts, not a real multi-user deployment. Constitutionally
+  compatible on its face (an identity-provider-agnostic core mirrors
+  the Runtime Integration ACL's existing agent-runtime-agnostic
+  pattern, §4.4 `MVP_ARCHITECTURE_V2.md`), but that compatibility
+  hasn't been checked against a real design — reserved for whenever
+  this surfaces for real, not designed speculatively now.
+
 ## Maintenance
 
 Update this file whenever the sequence changes — when an iteration
