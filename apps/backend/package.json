@@ -9,6 +9,7 @@
     "import": "tsx src/cli/import.ts",
     "verify": "tsx src/cli/verify.ts",
     "verify:github": "tsx src/cli/verify-github.ts",
+    "verify:github-bootstrap": "tsx src/cli/verify-github-bootstrap.ts",
     "verify:claude-adapter": "tsx src/cli/verify-claude-adapter.ts",
     "investigate:grant-disclosure": "tsx src/cli/investigate-ancestry-disclosure.ts",
     "investigate:run-blocked": "tsx src/cli/investigate-run-blocked.ts",

@@ -159,3 +159,15 @@ test("checkDrift against a file whose markers were deleted entirely is drift, no
   assert.equal(result.drifted, true);
   assert.equal(result.currentHash, null);
 });
+
+test("NoopVcsProvider.openPullRequestWithChanges (Iteration 17) does no real I/O and returns a fixed, fake URL", async () => {
+  const result = await noop.openPullRequestWithChanges({
+    providerRef: "noop/example",
+    branch: "nexus/bootstrap",
+    baseBranch: "main",
+    files: [{ path: ".nexus/repository.json", content: "{}" }],
+    title: "Nexus bootstrap",
+    body: "test",
+  });
+  assert.equal(result.prUrl, "noop://noop/example/pull/nexus/bootstrap");
+});
