@@ -172,6 +172,31 @@ following it blindly.
     repository's own category is determined when more than one category
     is ever populated — both named, disclosed gaps, not solved here. See
     `docs/history/iteration-19/`.
+11. **Iteration 20** (closed) — a real, previously undiscovered
+    correctness bug: `.github/workflows/nexus-alignment.yml`, generated
+    since Iteration 4 and pushed for real in Iterations 17 and 19, was
+    not valid YAML as actually committed. `wrapManagedRegion()` wrapped
+    every generated file in the same HTML-comment markers regardless of
+    format — harmless for the `.nexus/*.json` files (self-consumed by
+    Nexus's own unwrap-aware code) but not for the CI workflow, whose
+    only real consumer is GitHub Actions, an external system that never
+    unwraps Nexus's custom markers. Verified directly against this
+    project's own `yaml` package before any fix was written: the real,
+    generated content failed to parse. Every repository pushed for real
+    since Iteration 17 would have had its alignment-check workflow
+    rejected by GitHub Actions, unrelated to Iteration 18's own
+    alignment logic, which had simply never had a real chance to run.
+    Fixed with format-aware markers — a YAML comment style for the one
+    file that needs it, the existing HTML-comment style unchanged for
+    everything else, `extractManagedRegion()`/`hashManagedRegion()`
+    trying both automatically so no caller needs to know which style a
+    given file uses. Confirmed at the strongest available level: a real
+    repository, a real push, a real merge onto the default branch, and
+    GitHub's own Actions API listing the workflow as `state: "active"`.
+    Found while scoping the larger, riskier next feature (Technology
+    Profile-driven scaffolding synthesis) — closed first, before
+    building further on the same generation pipeline. See
+    `docs/history/iteration-20/`.
 
 ## Why this order
 
@@ -232,6 +257,15 @@ discipline once more, one level further up the stack this project has
 now climbed since Iteration 15 first deferred it — resolution (15),
 governance (16), push/branch/PR (17), and alignment verification (18)
 all had to hold before wiring them together was worth attempting.
+
+Iteration 20 was not queued in advance — it was found while scoping
+what would have been Iteration 20 anyway (the fuller half of Phase 4,
+real scaffolding synthesis), the same way Iteration 18 was found while
+reading Iteration 17's own real artifacts. A real, verified correctness
+bug in the generation pipeline every later iteration in this stack
+depends on takes priority over building further on top of it, the same
+reasoning that put Iteration 18 ahead of the bigger Phase 4 candidate
+in the first place.
 
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
