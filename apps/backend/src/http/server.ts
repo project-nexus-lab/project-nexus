@@ -1,15 +1,27 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { NexusDb } from "../db/client.js";
+import { extractManagedRegion } from "../repository/generate.js";
 import { errorBody, statusForError } from "./errors.js";
 import { buildRoutes } from "./routes.js";
 
+/**
+ * `POST /alignment/verify` (Iteration 18,
+ * `docs/history/iteration-18/SCOPE.md`) is the first route whose real
+ * caller posts a managed-region-wrapped file
+ * (`.nexus/repository.json`, exactly as `render()` generates it), not
+ * bare JSON — `extractManagedRegion()` (`src/repository/generate.ts`,
+ * built for `checkDrift()` in Iteration 4) strips those markers before
+ * parsing. Every other route's body has never contained the marker
+ * strings, so this falls through to the original plain `JSON.parse`
+ * unchanged for all of them.
+ */
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   if (chunks.length === 0) return undefined;
   const text = Buffer.concat(chunks).toString("utf8");
   if (text.trim() === "") return undefined;
-  return JSON.parse(text);
+  return JSON.parse(extractManagedRegion(text) ?? text);
 }
 
 function send(res: ServerResponse, status: number, body?: unknown): void {

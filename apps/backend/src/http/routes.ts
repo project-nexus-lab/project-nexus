@@ -1,4 +1,5 @@
 import type { NexusDb } from "../db/client.js";
+import { verifyRepositoryAlignment } from "../graph/alignment.js";
 import { getElement, listElements } from "../graph/elements.js";
 import { ancestry, capabilitiesOf, implementationPath, providersOf } from "../graph/traversals.js";
 import { buildGrant, type McpGrant } from "../mcp/grant.js";
@@ -164,6 +165,16 @@ export function buildRoutes(db: NexusDb): Router {
     const { grant, componentId } = ctx.body as { grant: McpGrant; componentId: string };
     return { status: 200, body: await getCapabilitiesOf(db, grant, componentId) };
   });
+
+  // --- Alignment check (§10.5, Iteration 18) ------------------------------
+  // The CI consumer this serves treats "repository ID unknown" as a
+  // reported check result (ok: false, 200), not a routing failure —
+  // deliberately not 404, unlike every other route in this file.
+
+  router.post("/alignment/verify", async (ctx) => ({
+    status: 200,
+    body: await verifyRepositoryAlignment(db, ctx.body),
+  }));
 
   return router;
 }

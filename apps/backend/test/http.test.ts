@@ -3,6 +3,13 @@ import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import type { NexusDb } from "../src/db/client.js";
 import { createHttpServer } from "../src/http/server.js";
+import {
+  declareRepository,
+  generateProjection,
+  provisionRepository,
+  registerMapping,
+} from "../src/repository/lifecycle.js";
+import { NoopVcsProvider } from "../src/repository/vcs-provider.js";
 import { seededDb } from "./helpers.js";
 
 let baseUrl: string;
@@ -394,4 +401,44 @@ test("PO discovery workflow: starting from only the product's name, discover, dr
   assert.deepEqual(providersAfter.body, [
     { component_id: "comp.po-test-export-service", is_primary: true },
   ]);
+});
+
+test("POST /alignment/verify accepts the exact managed-region-wrapped text render() produces, not bare JSON (Iteration 18)", async () => {
+  // Drives the real, unmodified state machine to get a real
+  // generateProjection() output — the same content the actual generated
+  // CI workflow posts, markers included, not a hand-typed approximation.
+  const noop = new NoopVcsProvider();
+  await declareRepository(db, { id: "repo.iter18-http-real", name: "iter18-http-real", provider: "noop" });
+  await provisionRepository(db, "repo.iter18-http-real", noop);
+  await registerMapping(db, "repo.iter18-http-real", "comp.invoice-service", false);
+  const [repositoryJsonFile] = await generateProjection(db, "repo.iter18-http-real", "v1");
+  assert.ok(repositoryJsonFile);
+
+  const res = await fetch(`${baseUrl}/alignment/verify`, {
+    method: "POST",
+    body: repositoryJsonFile.content, // the raw, marker-wrapped file — not JSON.stringify'd
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200, "must not be 400 InvalidJson");
+  assert.deepEqual(body, { ok: true, failures: [], warnings: [] });
+});
+
+test("POST /alignment/verify rejects a malformed request with 400, not a 500", async () => {
+  const { status, body } = await call("POST", "/alignment/verify", { componentIds: [] });
+  assert.equal(status, 400);
+  assert.equal(body.error, "InvalidAlignmentRequestError");
+});
+
+test("POST /alignment/verify reports an unknown repository as a structured result, not a 404", async () => {
+  const { status, body } = await call("POST", "/alignment/verify", {
+    repositoryId: "repo.does-not-exist-http",
+    componentIds: [],
+  });
+  assert.equal(status, 200);
+  assert.deepEqual(body, {
+    ok: false,
+    failures: [{ code: "unknown-repository", message: "repository repo.does-not-exist-http does not exist" }],
+    warnings: [],
+  });
 });

@@ -1,3 +1,4 @@
+import { InvalidAlignmentRequestError } from "../graph/alignment.js";
 import { ElementNotFoundError } from "../graph/elements.js";
 import { InvalidIdError } from "../ids/ids.js";
 import { GrantRefusedError } from "../mcp/grant.js";
@@ -27,7 +28,8 @@ export function statusForError(err: unknown): number {
     err instanceof InvalidProposalError ||
     err instanceof InvalidIdError ||
     err instanceof OrphanTaskError ||
-    err instanceof MissingAcceptanceCriteriaError
+    err instanceof MissingAcceptanceCriteriaError ||
+    err instanceof InvalidAlignmentRequestError
   ) {
     return 400;
   }
