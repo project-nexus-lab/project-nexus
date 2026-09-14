@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { createTechnologyProfile } from "../src/architecture/technology-profile.js";
 import type { NexusDb } from "../src/db/client.js";
 import { unprovidedCapabilities } from "../src/graph/alignment.js";
 import {
@@ -81,6 +82,26 @@ test("draftProposal validates authoredBy, operation shape, and id/kind agreement
       }),
     (err) => err instanceof InvalidProposalError,
   );
+  await assert.rejects(
+    () =>
+      draftProposal(db, {
+        intent: "x",
+        authoredBy: "human:a",
+        operations: [{ op: "decide", decideTitle: "T", decideStatement: "S" }], // missing decideId
+      }),
+    (err) => err instanceof InvalidProposalError,
+  );
+  await assert.rejects(
+    () =>
+      draftProposal(db, {
+        intent: "x",
+        authoredBy: "human:a",
+        operations: [
+          { op: "decide", decideId: "comp.wrong-prefix", decideTitle: "T", decideStatement: "S" },
+        ],
+      }),
+    (err) => err instanceof InvalidProposalError, // decideId must carry the 'adr.' prefix
+  );
 });
 
 test("'provide' operation establishes Component provides Capability transactionally, referencing elements minted by 'create' operations earlier in the same proposal (Iteration 12)", async () => {
@@ -147,6 +168,79 @@ test("'provide' operation is rejected by the DB when it names an id of the wrong
   await approveProposal(db, id, "human:a");
 
   await assert.rejects(() => applyProposal(db, id));
+});
+
+test("'decide' operation creates a real, governed architecture.decision row, already 'accepted' at apply time (Iteration 16)", async () => {
+  const { id } = await draftProposal(db, {
+    intent: "accept a new architecture decision",
+    authoredBy: "human:architect",
+    operations: [
+      {
+        op: "decide",
+        decideId: "adr.iter16-demo",
+        decideTitle: "Demo Decision",
+        decideStatement: "This decision exists to demonstrate governed creation.",
+      },
+    ],
+  });
+  await submitProposal(db, id);
+  await approveProposal(db, id, "human:bob");
+
+  const result = await applyProposal(db, id);
+  assert.deepEqual(result.decidedIds, ["adr.iter16-demo"]);
+
+  const { rows } = await db.query<{ title: string; status: string; statement: string }>(
+    `select title, status, statement from architecture.decision where id = 'adr.iter16-demo'`,
+  );
+  assert.deepEqual(rows[0], {
+    title: "Demo Decision",
+    status: "accepted",
+    statement: "This decision exists to demonstrate governed creation.",
+  });
+
+  // Attribution is discoverable indirectly, the same way a minted Element's
+  // is — by joining back through change_operation/change_proposal, not a
+  // column on architecture.decision itself (see SCOPE.md's own reasoning).
+  const { rows: attribution } = await db.query<{ authored_by: string; approved_by: string }>(
+    `select cp.authored_by, cp.approved_by
+     from architecture.change_operation co
+     join architecture.change_proposal cp on cp.id = co.proposal_id
+     where co.op = 'decide' and co.decide_id = 'adr.iter16-demo'`,
+  );
+  assert.deepEqual(attribution[0], { authored_by: "human:architect", approved_by: "human:bob" });
+});
+
+test("Iteration 16 closes Open Question #7 end-to-end: a Decision created through a real, applied proposal is then successfully cited by createTechnologyProfile (Iteration 15)", async () => {
+  const { id } = await draftProposal(db, {
+    intent: "accept the backend technology stack decision",
+    authoredBy: "human:po",
+    operations: [
+      {
+        op: "decide",
+        decideId: "adr.iter16-backend-stack",
+        decideTitle: "Backend stack: Java 24 + Gradle",
+        decideStatement: "The backend category standardizes on Java 24 with Gradle.",
+      },
+    ],
+  });
+  await submitProposal(db, id);
+  await approveProposal(db, id, "human:reviewer");
+  await applyProposal(db, id);
+
+  // Before Iteration 16, only a direct insert could have produced this row.
+  // Here it was created entirely through review — the real evidence this
+  // iteration exists to produce, not merely that the 'decide' operation
+  // works in isolation.
+  const { id: profileId } = await createTechnologyProfile(db, {
+    id: "tech.iter16-java24-gradle",
+    category: "backend",
+    language: "Java",
+    languageVersion: "24",
+    buildSystem: "Gradle",
+    decisionId: "adr.iter16-backend-stack",
+    authoredBy: "human:po",
+  });
+  assert.equal(profileId, "tech.iter16-java24-gradle");
 });
 
 test("full lifecycle: draft -> proposed -> approved -> applied mints an element transactionally", async () => {

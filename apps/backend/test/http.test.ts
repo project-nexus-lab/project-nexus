@@ -302,6 +302,12 @@ test("GET /proposals/:id returns the proposal's own operations, unreachable befo
         provideCapabilityId: "cap.invoice-export",
         provideIsPrimary: true,
       },
+      {
+        op: "decide",
+        decideId: "adr.http-review",
+        decideTitle: "HTTP Review Decision",
+        decideStatement: "Exists to confirm 'decide' surfaces over the existing read route.",
+      },
     ],
   });
 
@@ -313,6 +319,7 @@ test("GET /proposals/:id returns the proposal's own operations, unreachable befo
   assert.deepEqual(body.operations, [
     { ordinal: 0, op: "create", mintId: "comp.http-review", mintKind: "component", mintParentId: "subsys.invoice", mintName: "HTTP Review" },
     { ordinal: 1, op: "provide", provideComponentId: "comp.http-review", provideCapabilityId: "cap.invoice-export", provideIsPrimary: true },
+    { ordinal: 2, op: "decide", decideId: "adr.http-review", decideTitle: "HTTP Review Decision", decideStatement: "Exists to confirm 'decide' surfaces over the existing read route." },
   ]);
 });
 

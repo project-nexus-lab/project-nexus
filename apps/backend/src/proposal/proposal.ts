@@ -1,7 +1,7 @@
 import type { NexusDb } from "../db/client.js";
 import type { SqlExecutor } from "../db/sql-executor.js";
 import { liveReferences } from "../graph/alignment.js";
-import { assertPrefixMatchesKind, generateUlid, InvalidIdError } from "../ids/ids.js";
+import { assertId, assertPrefixMatchesKind, generateUlid, InvalidIdError } from "../ids/ids.js";
 import { releaseBlockedTasks } from "../work/lifecycle.js";
 
 /**
@@ -27,6 +27,20 @@ import { releaseBlockedTasks } from "../work/lifecycle.js";
  * kind-checked foreign keys and at-most-one-primary-provider index remain
  * the final word, the same discipline `create`/`retire` already follow
  * for containment and retirement.
+ *
+ * `decide` was added in Iteration 16 (`docs/history/iteration-16/SCOPE.md`):
+ * `architecture.decision` had no governed creation path at all — every
+ * row was a direct insert. `decide` closes it the same way `provide`
+ * closed the equivalent Element gap: a fourth operation on this same
+ * mechanism, not a second, parallel proposal-and-approval lifecycle.
+ * A Decision is inserted only at apply time, already `status = 'accepted'`
+ * — the same pattern `create` already established for Elements (minted
+ * only at apply time, already `'active'`). No attribution columns were
+ * added to `architecture.decision` itself; attribution is discoverable
+ * the same indirect way a minted Element's already is, by joining back
+ * through `change_operation`/`change_proposal`. `decision_scope` (which
+ * elements a Decision governs) remains untouched — a separate, still
+ * unimplemented gap (`docs/history/iteration-12/LESSONS.md`).
  */
 
 export class InvalidProposalError extends Error {
@@ -68,7 +82,7 @@ export class RetirementRefusedError extends Error {
 type ArchitectureKind = "product" | "domain" | "subsystem" | "component" | "capability";
 
 export interface ProposalOperationInput {
-  op: "create" | "retire" | "provide";
+  op: "create" | "retire" | "provide" | "decide";
   // create:
   mintId?: string;
   mintKind?: ArchitectureKind;
@@ -82,6 +96,10 @@ export interface ProposalOperationInput {
   provideComponentId?: string;
   provideCapabilityId?: string;
   provideIsPrimary?: boolean;
+  // decide (governed Decision creation, Iteration 16):
+  decideId?: string;
+  decideTitle?: string;
+  decideStatement?: string;
 }
 
 export interface DraftProposalInput {
@@ -121,6 +139,20 @@ function validateOperation(op: ProposalOperationInput, index: number): void {
         `operation ${index}: 'provide' requires provideComponentId and provideCapabilityId`,
       );
     }
+  } else if (op.op === "decide") {
+    if (!op.decideId || !op.decideTitle || !op.decideStatement) {
+      throw new InvalidProposalError(
+        `operation ${index}: 'decide' requires decideId, decideTitle, and decideStatement`,
+      );
+    }
+    try {
+      assertId(op.decideId, "decision");
+    } catch (err) {
+      if (err instanceof InvalidIdError) {
+        throw new InvalidProposalError(`operation ${index}: ${err.message}`);
+      }
+      throw err;
+    }
   } else {
     throw new InvalidProposalError(`operation ${index}: unknown op '${(op as { op: string }).op}'`);
   }
@@ -152,8 +184,8 @@ export async function draftProposal(
       `insert into architecture.change_operation
          (proposal_id, ordinal, op, target_id, mint_id, mint_kind, mint_parent_id, mint_name,
           supersedes_id, requires_repository, provide_component_id, provide_capability_id,
-          provide_is_primary)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          provide_is_primary, decide_id, decide_title, decide_statement)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         id,
         index,
@@ -168,6 +200,9 @@ export async function draftProposal(
         op.provideComponentId ?? null,
         op.provideCapabilityId ?? null,
         op.provideIsPrimary ?? false,
+        op.decideId ?? null,
+        op.decideTitle ?? null,
+        op.decideStatement ?? null,
       ],
     );
   }
@@ -294,7 +329,7 @@ async function assertRetirementAllowed(
 
 interface ChangeOperationRow {
   ordinal: number;
-  op: "create" | "retire" | "provide";
+  op: "create" | "retire" | "provide" | "decide";
   target_id: string | null;
   mint_id: string | null;
   mint_kind: string | null;
@@ -305,6 +340,9 @@ interface ChangeOperationRow {
   provide_component_id: string | null;
   provide_capability_id: string | null;
   provide_is_primary: boolean;
+  decide_id: string | null;
+  decide_title: string | null;
+  decide_statement: string | null;
 }
 
 export interface ApplyProposalResult {
@@ -313,6 +351,8 @@ export interface ApplyProposalResult {
   retiredIds: string[];
   /** Provision edges established by this proposal's `provide` operations (Iteration 12). */
   providedLinks: Array<{ componentId: string; capabilityId: string }>;
+  /** Decisions created by this proposal's `decide` operations (Iteration 16), already 'accepted'. */
+  decidedIds: string[];
   /** Tasks previously blocked on this proposal, now released back to 'draft' (§2.2). */
   releasedTaskIds: string[];
 }
@@ -335,7 +375,7 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
   const { rows: operations } = await db.query<ChangeOperationRow>(
     `select ordinal, op, target_id, mint_id, mint_kind, mint_parent_id, mint_name,
             supersedes_id, requires_repository, provide_component_id, provide_capability_id,
-            provide_is_primary
+            provide_is_primary, decide_id, decide_title, decide_statement
      from architecture.change_operation
      where proposal_id = $1
      order by ordinal`,
@@ -352,6 +392,7 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
     const mintedIds: string[] = [];
     const retiredIds: string[] = [];
     const providedLinks: Array<{ componentId: string; capabilityId: string }> = [];
+    const decidedIds: string[] = [];
 
     for (const op of operations) {
       if (op.op === "create") {
@@ -377,6 +418,13 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
           [componentId, capabilityId, op.provide_is_primary],
         );
         providedLinks.push({ componentId, capabilityId });
+      } else if (op.op === "decide") {
+        await tx.query(
+          `insert into architecture.decision (id, title, status, statement)
+           values ($1, $2, 'accepted', $3)`,
+          [op.decide_id, op.decide_title, op.decide_statement],
+        );
+        decidedIds.push(op.decide_id as string);
       } else {
         const targetId = op.target_id as string;
         await assertRetirementAllowed(tx, targetId, supersededByThisProposal.has(targetId));
@@ -404,7 +452,7 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
 
     const releasedTaskIds = await releaseBlockedTasks(tx, proposalId);
 
-    return { proposalId, mintedIds, retiredIds, providedLinks, releasedTaskIds };
+    return { proposalId, mintedIds, retiredIds, providedLinks, decidedIds, releasedTaskIds };
   });
 }
 
@@ -418,7 +466,7 @@ export async function applyProposal(db: NexusDb, proposalId: string): Promise<Ap
  */
 export interface ProposalOperationDetail {
   ordinal: number;
-  op: "create" | "retire" | "provide";
+  op: "create" | "retire" | "provide" | "decide";
   targetId?: string;
   mintId?: string;
   mintKind?: string;
@@ -429,6 +477,9 @@ export interface ProposalOperationDetail {
   provideComponentId?: string;
   provideCapabilityId?: string;
   provideIsPrimary?: boolean;
+  decideId?: string;
+  decideTitle?: string;
+  decideStatement?: string;
 }
 
 export interface ProposalDetail {
@@ -452,6 +503,9 @@ function toOperationDetail(op: ChangeOperationRow): ProposalOperationDetail {
   if (op.provide_component_id !== null) detail.provideComponentId = op.provide_component_id;
   if (op.provide_capability_id !== null) detail.provideCapabilityId = op.provide_capability_id;
   if (op.provide_is_primary) detail.provideIsPrimary = op.provide_is_primary;
+  if (op.decide_id !== null) detail.decideId = op.decide_id;
+  if (op.decide_title !== null) detail.decideTitle = op.decide_title;
+  if (op.decide_statement !== null) detail.decideStatement = op.decide_statement;
   return detail;
 }
 
@@ -476,7 +530,7 @@ export async function getProposalDetail(
   const { rows: operations } = await db.query<ChangeOperationRow>(
     `select ordinal, op, target_id, mint_id, mint_kind, mint_parent_id, mint_name,
             supersedes_id, requires_repository, provide_component_id, provide_capability_id,
-            provide_is_primary
+            provide_is_primary, decide_id, decide_title, decide_statement
      from architecture.change_operation
      where proposal_id = $1
      order by ordinal`,

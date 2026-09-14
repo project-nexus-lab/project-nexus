@@ -177,6 +177,90 @@ test("product_technology_profile rejects a product_id that is not a 'product'-ki
   );
 });
 
+test("change_operation accepts a well-formed 'decide' row", async () => {
+  await db.query(
+    `insert into architecture.change_proposal (id, intent, authored_by)
+     values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA0', 'schema test', 'human:x')`,
+  );
+  await db.query(
+    `insert into architecture.change_operation
+       (proposal_id, ordinal, op, decide_id, decide_title, decide_statement)
+     values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA0', 0, 'decide', 'adr.contam-ok', 'T', 'S')`,
+  );
+  const { rows } = await db.query<{ decide_id: string }>(
+    `select decide_id from architecture.change_operation where proposal_id = 'acp.01ARZ3NDEKTSV4RRFFQ69G5FA0'`,
+  );
+  assert.deepEqual(rows, [{ decide_id: "adr.contam-ok" }]);
+});
+
+test("change_operation's mutual-exclusivity check (Iteration 16): a 'create' row cannot also carry retire/provide/decide fields", async () => {
+  await db.query(
+    `insert into architecture.change_proposal (id, intent, authored_by)
+     values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA1', 'schema test', 'human:x')`,
+  );
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.change_operation
+         (proposal_id, ordinal, op, mint_id, mint_kind, mint_name,
+          target_id, provide_component_id, provide_capability_id,
+          decide_id, decide_title, decide_statement)
+       values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA1', 0, 'create', 'comp.contam-1', 'component', 'X',
+               'comp.c1', 'comp.c1', 'cap.cap1', 'adr.contam-1', 'T', 'S')`,
+    ),
+  );
+});
+
+test("change_operation's mutual-exclusivity check: a 'retire' row cannot also carry create/provide/decide fields", async () => {
+  await db.query(
+    `insert into architecture.change_proposal (id, intent, authored_by)
+     values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA2', 'schema test', 'human:x')`,
+  );
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.change_operation
+         (proposal_id, ordinal, op, target_id, mint_id, mint_kind, mint_name,
+          provide_component_id, provide_capability_id,
+          decide_id, decide_title, decide_statement)
+       values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA2', 0, 'retire', 'comp.c1', 'comp.contam-2', 'component', 'X',
+               'comp.c1', 'cap.cap1', 'adr.contam-2', 'T', 'S')`,
+    ),
+  );
+});
+
+test("change_operation's mutual-exclusivity check: a 'provide' row cannot also carry create/retire/decide fields", async () => {
+  await db.query(
+    `insert into architecture.change_proposal (id, intent, authored_by)
+     values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA3', 'schema test', 'human:x')`,
+  );
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.change_operation
+         (proposal_id, ordinal, op, provide_component_id, provide_capability_id,
+          target_id, mint_id, mint_kind, mint_name,
+          decide_id, decide_title, decide_statement)
+       values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA3', 0, 'provide', 'comp.c1', 'cap.cap1',
+               'comp.c1', 'comp.contam-3', 'component', 'X', 'adr.contam-3', 'T', 'S')`,
+    ),
+  );
+});
+
+test("change_operation's mutual-exclusivity check: a 'decide' row cannot also carry create/retire/provide fields", async () => {
+  await db.query(
+    `insert into architecture.change_proposal (id, intent, authored_by)
+     values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA4', 'schema test', 'human:x')`,
+  );
+  await assert.rejects(() =>
+    db.query(
+      `insert into architecture.change_operation
+         (proposal_id, ordinal, op, decide_id, decide_title, decide_statement,
+          target_id, mint_id, mint_kind, mint_name,
+          provide_component_id, provide_capability_id)
+       values ('acp.01ARZ3NDEKTSV4RRFFQ69G5FA4', 0, 'decide', 'adr.contam-4', 'T', 'S',
+               'comp.c1', 'comp.contam-4', 'component', 'X', 'comp.c1', 'cap.cap1')`,
+    ),
+  );
+});
+
 test("execution.work_package is insert-only in intent: unique(task_id, profile_id, content_hash)", async () => {
   await db.query(
     `insert into execution.work_package_profile (id, name) values ('wpp.test', 'Test')`,
