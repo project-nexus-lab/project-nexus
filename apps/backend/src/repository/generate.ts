@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ResolvedTechnologyProfile } from "../architecture/technology-profile.js";
 import type { LocalSubgraph } from "../graph/traversals.js";
 
 /**
@@ -14,6 +15,21 @@ import type { LocalSubgraph } from "../graph/traversals.js";
  * because no real adapter with a real template exists yet (Iterations 2
  * and 3 built only no-op adapters). Seeding a placeholder template just to
  * exercise the table would be building for a need that does not exist yet.
+ *
+ * `.nexus/technology-profile.json` was added in Iteration 19
+ * (`docs/history/iteration-19/SCOPE.md`) — the first slice of Iteration
+ * 15's own deferred "Phase 4": projecting an already-resolved Technology
+ * Profile into the repository, not yet synthesizing real language/build/
+ * CI scaffolding from it. A separate file, not a new field on
+ * `.nexus/repository.json` — each generated file already has exactly one
+ * concern, and mixing a resolved architecture fact into the
+ * identity/config file would repeat the exact footprint smell the
+ * Iteration 17 Artifact Review found in `nexusBaseUrl`. Contains only
+ * genuine Architecture-computed facts (`resolveTechnologyProfile()`'s own
+ * return shape) — no environment or deployment configuration of any
+ * kind. Additive and optional: omitted entirely when no profile is
+ * resolved, which is every repository in this project's real seed data
+ * today.
  */
 
 const BEGIN_MARKER = "<!-- nexus:begin generated · do not edit -->";
@@ -50,6 +66,14 @@ export interface RenderInput {
   subgraphs: LocalSubgraph[];
   templateVersion: string;
   nexusBaseUrl?: string;
+  /**
+   * Already resolved by the caller (Iteration 19) — `render()` stays pure
+   * and does no Technology Profile lookup of its own, the same reason it
+   * takes `subgraphs` pre-resolved rather than querying for them itself.
+   * `null`/omitted ⇒ no fourth file, byte-identical to every render()
+   * call before this iteration.
+   */
+  technologyProfile?: ResolvedTechnologyProfile | null;
 }
 
 /**
@@ -92,9 +116,30 @@ export function render(input: RenderInput): ManagedFile[] {
     ].join("\n"),
   );
 
-  return [
+  const files: ManagedFile[] = [
     { path: ".nexus/repository.json", content: repositoryJson },
     { path: ".nexus/architecture.snapshot.json", content: architectureSnapshotJson },
     { path: ".github/workflows/nexus-alignment.yml", content: alignmentWorkflowYaml },
   ];
+
+  if (input.technologyProfile) {
+    const p = input.technologyProfile;
+    const technologyProfileJson = wrapManagedRegion(
+      JSON.stringify(
+        {
+          profileId: p.id,
+          category: p.category,
+          language: p.language,
+          languageVersion: p.languageVersion,
+          buildSystem: p.buildSystem,
+          decisionId: p.decisionId,
+        },
+        null,
+        2,
+      ),
+    );
+    files.push({ path: ".nexus/technology-profile.json", content: technologyProfileJson });
+  }
+
+  return files;
 }

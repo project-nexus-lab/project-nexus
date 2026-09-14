@@ -1,8 +1,19 @@
+import { resolveTechnologyProfile } from "../architecture/technology-profile.js";
 import type { SqlExecutor } from "../db/sql-executor.js";
 import { localSubgraph } from "../graph/traversals.js";
 import { assertId } from "../ids/ids.js";
 import { hashManagedRegion, render, type ManagedFile } from "./generate.js";
 import type { VcsProvider } from "./vcs-provider.js";
+
+/**
+ * The Technology Profile category resolved automatically during
+ * generation (Iteration 19, `docs/history/iteration-19/SCOPE.md`).
+ * Hardcoded, not configurable: `backend` is the only category any real
+ * Technology Profile has ever existed for (Iteration 15). Which category
+ * a Component/Repository itself belongs to has no schema field yet — a
+ * disclosed gap this iteration sidesteps, not solves.
+ */
+const AUTO_RESOLVED_TECHNOLOGY_CATEGORY = "backend";
 
 /**
  * Repository bootstrap state machine — MVP_ARCHITECTURE_V2 §10.1, §10.2:
@@ -129,6 +140,12 @@ export async function registerMapping(
  * and transitions state. Stands in for "files rendered; branch
  * nexus/bootstrap; PR opened" (§10.2) — no branch, no PR, no real VCS
  * write; see the module doc comment.
+ *
+ * Since Iteration 19: also resolves the repository's Technology Profile
+ * (via its primary-mapped component, `backend` category only — see
+ * `docs/history/iteration-19/SCOPE.md`) and passes it into `render()`,
+ * which adds a fourth generated file when one resolves. Additive: no
+ * assigned profile ⇒ no fourth file, exactly today's three.
  */
 export async function generateProjection(
   db: SqlExecutor,
@@ -140,18 +157,33 @@ export async function generateProjection(
     throw new IllegalRepositoryTransitionError(repositoryId, repo.bootstrap_state, "bootstrapped");
   }
 
-  const { rows: mappings } = await db.query<{ component_id: string }>(
-    `select component_id from repo.repository_component where repository_id = $1 order by component_id`,
+  const { rows: mappings } = await db.query<{ component_id: string; is_primary: boolean }>(
+    `select component_id, is_primary from repo.repository_component where repository_id = $1 order by component_id`,
     [repositoryId],
   );
   const componentIds = mappings.map((m) => m.component_id);
   const subgraphs = await Promise.all(componentIds.map((id) => localSubgraph(db, id)));
+
+  // Iteration 19: resolved from the repository's primary-mapped component
+  // only — and only when exactly one exists. `repository_component_primary_uq`
+  // prevents the *same* component from being primary for two different
+  // repositories; it does not prevent one repository from marking two of
+  // its *own* distinct mapped components primary. Rather than silently
+  // picking whichever sorts first, ambiguity here is treated the same way
+  // "no primary mapped" already is: no Technology Profile in this
+  // generation, not a gate failure either way.
+  const primaryComponentIds = mappings.filter((m) => m.is_primary).map((m) => m.component_id);
+  const technologyProfile =
+    primaryComponentIds.length === 1
+      ? await resolveTechnologyProfile(db, primaryComponentIds[0] as string, AUTO_RESOLVED_TECHNOLOGY_CATEGORY)
+      : null;
 
   const files = render({
     repository: { id: repo.id, name: repo.name, defaultBranch: repo.default_branch },
     componentIds,
     subgraphs,
     templateVersion,
+    technologyProfile,
   });
 
   for (const file of files) {

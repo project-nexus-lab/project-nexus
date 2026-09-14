@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { assignTechnologyProfile, createTechnologyProfile } from "../src/architecture/technology-profile.js";
 import type { NexusDb } from "../src/db/client.js";
-import { extractManagedRegion } from "../src/repository/generate.js";
+import { extractManagedRegion, render } from "../src/repository/generate.js";
 import {
   activateRepository,
   checkDrift,
@@ -170,4 +171,174 @@ test("NoopVcsProvider.openPullRequestWithChanges (Iteration 17) does no real I/O
     body: "test",
   });
   assert.equal(result.prUrl, "noop://noop/example/pull/nexus/bootstrap");
+});
+
+test("render() with technologyProfile omitted produces exactly today's three files, byte-identical to before Iteration 19", async () => {
+  const files = render({
+    repository: { id: "repo.iter19-none", name: "iter19-none", defaultBranch: "main" },
+    componentIds: [],
+    subgraphs: [],
+    templateVersion: "v1",
+  });
+  assert.deepEqual(
+    files.map((f) => f.path),
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+  );
+});
+
+test("render() with a real technologyProfile adds a fourth file, .nexus/technology-profile.json, with the resolved profile's own fields verbatim", async () => {
+  const files = render({
+    repository: { id: "repo.iter19-with-profile", name: "iter19-with-profile", defaultBranch: "main" },
+    componentIds: [],
+    subgraphs: [],
+    templateVersion: "v1",
+    technologyProfile: {
+      id: "tech.iter19-java24-gradle",
+      category: "backend",
+      language: "Java",
+      languageVersion: "24",
+      buildSystem: "Gradle",
+      decisionId: "adr.iter19-backend-stack",
+    },
+  });
+  assert.deepEqual(
+    files.map((f) => f.path),
+    [
+      ".nexus/repository.json",
+      ".nexus/architecture.snapshot.json",
+      ".github/workflows/nexus-alignment.yml",
+      ".nexus/technology-profile.json",
+    ],
+  );
+  const region = extractManagedRegion(files[3]?.content as string);
+  assert.deepEqual(region && JSON.parse(region), {
+    profileId: "tech.iter19-java24-gradle",
+    category: "backend",
+    language: "Java",
+    languageVersion: "24",
+    buildSystem: "Gradle",
+    decisionId: "adr.iter19-backend-stack",
+  });
+});
+
+test("generateProjection() resolves a real Technology Profile end-to-end via the repository's primary-mapped component, and hashes the fourth file the same way as the other three", async () => {
+  await db.query(
+    `insert into architecture.decision (id, title, status, statement)
+     values ('adr.iter19-backend-stack', 'Backend stack', 'accepted', 'stmt')`,
+  );
+  const { id: profileId } = await createTechnologyProfile(db, {
+    id: "tech.iter19-real-gradle",
+    category: "backend",
+    language: "Java",
+    languageVersion: "24",
+    buildSystem: "Gradle",
+    decisionId: "adr.iter19-backend-stack",
+    authoredBy: "human:po",
+  });
+  // A fresh component, not the seed's own comp.invoice-service — that one
+  // is already the global primary mapping for repo.billing-service, and
+  // repository_component_primary_uq is a global-per-component uniqueness,
+  // not scoped to one repository.
+  await db.query(
+    `insert into architecture.element (id, kind, parent_id, name)
+     values ('comp.iter19-primary-target', 'component', 'subsys.invoice', 'Iter19 Primary Target')`,
+  );
+  // comp.iter19-primary-target's own Product is prod.trade-platform (the
+  // seed's only Product) — assigning the profile there is what
+  // resolveTechnologyProfile() will find via ancestry().
+  await assignTechnologyProfile(db, { productId: "prod.trade-platform", category: "backend", profileId });
+
+  await declareRepository(db, { id: "repo.iter19-primary", name: "iter19-primary", provider: "noop" });
+  await provisionRepository(db, "repo.iter19-primary", noop);
+  await registerMapping(db, "repo.iter19-primary", "comp.iter19-primary-target", true); // primary
+
+  const files = await generateProjection(db, "repo.iter19-primary", "v1");
+  assert.deepEqual(
+    files.map((f) => f.path),
+    [
+      ".nexus/repository.json",
+      ".nexus/architecture.snapshot.json",
+      ".github/workflows/nexus-alignment.yml",
+      ".nexus/technology-profile.json",
+    ],
+  );
+  const techProfileFile = files.find((f) => f.path === ".nexus/technology-profile.json");
+  const region = extractManagedRegion(techProfileFile?.content as string);
+  assert.deepEqual(region && JSON.parse(region), {
+    profileId: "tech.iter19-real-gradle",
+    category: "backend",
+    language: "Java",
+    languageVersion: "24",
+    buildSystem: "Gradle",
+    decisionId: "adr.iter19-backend-stack",
+  });
+
+  // Iteration 4's own mechanism, unmodified, already covers a fourth file.
+  const { rows } = await db.query<{ region_hash: string }>(
+    `select region_hash from repo.generated_region where repository_id = 'repo.iter19-primary' and file_path = '.nexus/technology-profile.json'`,
+  );
+  assert.ok(rows[0]?.region_hash);
+});
+
+test("generateProjection() with no primary-mapped component skips Technology Profile resolution silently — exactly three files, not an error", async () => {
+  await db.query(
+    `insert into architecture.decision (id, title, status, statement)
+     values ('adr.iter19-unused', 'Unused', 'accepted', 'stmt')`,
+  );
+  const { id: profileId } = await createTechnologyProfile(db, {
+    id: "tech.iter19-unused",
+    category: "backend",
+    language: "Java",
+    languageVersion: "24",
+    buildSystem: "Gradle",
+    decisionId: "adr.iter19-unused",
+    authoredBy: "human:po",
+  });
+  await assignTechnologyProfile(db, { productId: "prod.trade-platform", category: "backend", profileId });
+
+  await declareRepository(db, { id: "repo.iter19-no-primary", name: "iter19-no-primary", provider: "noop" });
+  await provisionRepository(db, "repo.iter19-no-primary", noop);
+  await registerMapping(db, "repo.iter19-no-primary", "comp.invoice-service", false); // not primary
+
+  const files = await generateProjection(db, "repo.iter19-no-primary", "v1");
+  assert.deepEqual(
+    files.map((f) => f.path),
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+  );
+});
+
+test("generateProjection() with two distinct primary-mapped components (a real ambiguity repository_component_primary_uq does not prevent) skips Technology Profile resolution rather than silently picking one", async () => {
+  await db.query(
+    `insert into architecture.element (id, kind, parent_id, name)
+     values ('comp.iter19-primary-a', 'component', 'subsys.invoice', 'Iter19 Primary A')`,
+  );
+  await db.query(
+    `insert into architecture.element (id, kind, parent_id, name)
+     values ('comp.iter19-primary-b', 'component', 'subsys.invoice', 'Iter19 Primary B')`,
+  );
+  await db.query(
+    `insert into architecture.decision (id, title, status, statement)
+     values ('adr.iter19-ambiguous', 'Ambiguous', 'accepted', 'stmt')`,
+  );
+  const { id: profileId } = await createTechnologyProfile(db, {
+    id: "tech.iter19-ambiguous",
+    category: "backend",
+    language: "Java",
+    languageVersion: "24",
+    buildSystem: "Gradle",
+    decisionId: "adr.iter19-ambiguous",
+    authoredBy: "human:po",
+  });
+  await assignTechnologyProfile(db, { productId: "prod.trade-platform", category: "backend", profileId });
+
+  await declareRepository(db, { id: "repo.iter19-two-primaries", name: "iter19-two-primaries", provider: "noop" });
+  await provisionRepository(db, "repo.iter19-two-primaries", noop);
+  await registerMapping(db, "repo.iter19-two-primaries", "comp.iter19-primary-a", true);
+  await registerMapping(db, "repo.iter19-two-primaries", "comp.iter19-primary-b", true);
+
+  const files = await generateProjection(db, "repo.iter19-two-primaries", "v1");
+  assert.deepEqual(
+    files.map((f) => f.path),
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+  );
 });
