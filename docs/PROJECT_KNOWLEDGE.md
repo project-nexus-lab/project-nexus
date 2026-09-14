@@ -77,6 +77,9 @@ Demonstrated correct by direct implementation evidence.
 | Category-scoped Technology Profile assignments (`Product × Category → Profile`) resolve correctly through the existing `ancestry()` traversal (§8.4), with no new traversal and no override/nearest-ancestor-wins resolution logic needed | Iteration 15 | `resolveTechnologyProfile()` calls `ancestry()` unmodified and looks up `(product_id, category)` directly; confirmed against `comp.invoice-service`, three containment levels from `prod.trade-platform` (Component→Subsystem→Domain→Product), matching the assigned profile exactly on the first real call. |
 | A small, data-driven `technology_category` reference table (mirroring `architecture.legal_containment`'s own pattern) lets a new category be added with a single insert — no schema or CHECK-constraint change | Iteration 15 | A fifth category (`mobile`, test-only) was added with one `insert` and nothing else — no migration, no constraint edit, no code change. |
 | This project's own established cross-row-invariant idioms — `element_provision`'s composite-FK kind check, `check_legal_containment`'s trigger pattern — transfer to a new table (`product_technology_profile`) without adaptation | Iteration 15 | A non-`product` `productId` is rejected by the reused composite FK directly, independent of the friendlier app-layer error; a profile/category mismatch is rejected by a dedicated trigger via a raw insert that bypasses the module entirely — both are real DB-level guarantees, not conventions the wrapper happens to respect. |
+| Extending `ArchitectureChangeProposal` with a fourth operation (`decide`) gives `architecture.decision` a real, attributable, human-approved creation path, without a second, parallel proposal-and-approval lifecycle built for Decisions alone | Iteration 16 | A `decide` operation reached `applied` through the existing state machine unchanged; the resulting Decision row was `status = 'accepted'`, and its attribution was confirmed recoverable by joining `change_operation`/`change_proposal` — not merely that the insert succeeded. A second test then cited that same governance-created Decision from `createTechnologyProfile` (Iteration 15), closing Open Question #7's own concrete loop. |
+| `architecture.change_operation`'s mutual-exclusivity check can be retrofitted to cover `create`/`retire`/`provide` as well as a new fourth operation, without narrowing what any existing operation is legally allowed to do | Iteration 16 | Every pre-existing `create`/`retire`/`provide` test passed unmodified against the rewritten `change_operation_check`; five new tests confirm the retrofit directly at the DB level — one well-formed `decide` row accepted, all four operation types individually rejected when carrying another operation's fields. Pays the debt Iteration 12's own `/review` disclosed and explicitly named this exact trigger for. |
+| Inserting a governed Decision only at *apply* time, already `'accepted'` — mirroring `create`'s own apply-time-only Element minting — is the correct choice, not merely the convenient one | Iteration 16 | The alternative (insert at draft time as `'proposed'`, flip to `'accepted'` at apply) was considered directly during `/review`: `architecture.decision.status` has no `'rejected'`/`'withdrawn'` value, so a later-rejected proposal would leave an orphaned, permanently-`'proposed'` row with no legal transition out. The apply-time-only design avoids this failure mode entirely. |
 
 ---
 
@@ -112,6 +115,8 @@ concrete experiment a future iteration can run directly.
 | Citing an existing, `accepted` `architecture.decision` row gives Technology Profile governance real attribution, rather than only the appearance of it | Iteration 15 | `architecture.decision` itself has no governed creation path — every Decision row, including this iteration's own `adr.backend-stack-java24-gradle`, is a direct insert, the same gap Iteration 12 disclosed and left open for Decisions when it closed the equivalent gap for Elements via `provide`. Iteration 15's evidence shows only that the citation *check* works (a nonexistent or non-`accepted` decision is rejected); it cannot show the citation produces a real governance workflow, because no governed way to create the thing being cited exists yet — see Open Questions, below. | Build a real, governed Decision-creation path and observe whether Technology Profile governance changes once Decisions themselves carry that discipline — not an experiment Technology Profiles alone can run. |
 | `resolveTechnologyProfile`'s single fixed lookup at the Product remains correct and fast beyond this project's own toy seed scale | Iteration 15 | Only ever exercised against the seed dataset's small tree (`prod.trade-platform` with a handful of descendants); never run at the ~1,350-element scale Iteration 10 validated for the other eight named traversals this function's own `ancestry()` call depends on. | Reuse Iteration 10's own graph-scale seeding approach (`investigate-graph-scale.ts`), assign profiles across a meaningfully larger number of Products and categories, and confirm correctness and speed hold. |
 | A second, real (non-scaffold) category — `frontend`, `infrastructure`, or `data` — behaves the way this schema's category-scoped shape predicts, once actually populated | Iteration 15 | v1 deliberately populates only `backend`; the category table holds all four values and the schema places no structural obstacle in front of a second category, but that is an argument from design, not from a second real example having been built and resolved. | Add one real profile in a second category, assign it to a Product that also has a `backend` assignment, and confirm `resolveTechnologyProfile` returns the correct profile for each category independently from the same Product. |
+| `architecture.decision_scope` (which elements a Decision governs) is safe to leave entirely outside the new `decide` governed-creation mechanism | Iteration 16 | Untouched by design — governing Decision *creation* and governing which elements a Decision *applies to* were treated as two separate gaps, and only the first was this iteration's target. No concrete scenario has yet demanded the second; Iteration 12 named this same open thread three iterations ago and it remains exactly as open now. | Build a real scenario needing a newly governance-created Decision immediately scoped to specific elements in the same reviewed step, and decide then whether `decide` needs a `governs: string[]`-shaped extension or a separate, later mechanism is a better fit. |
+| `architecture.change_operation`'s mutual-exclusivity `case` expression, now covering four operation types, remains a maintainable shape rather than the point at which the deferred `jsonb`-discriminated-payload alternative finally earns its cost | Iteration 16 | Readable and passing at four operation types; genuinely untested whether a fifth (`move`/`split`/`merge`, `MVP_ARCHITECTURE_V2.md` §5.3) would still be comfortable to add to the same `case` expression. | The next iteration proposing a fifth `change_operation` type should read this constraint fresh before extending it again, and treat "is this still readable" as a real question, not a formality. |
 
 ---
 
@@ -210,22 +215,17 @@ one architectural bet.
    needed, each deliberately left unimplemented pending a concrete scenario rather
    than built speculatively (see Unproven, `docs/history/iteration-12/LESSONS.md`).
 
-7. **Does citing an existing `architecture.decision` row give Technology
-   Profile governance real attribution, or only the appearance of it?**
-   Implemented, not resolved, by Iteration 15: `createTechnologyProfile`
-   now requires an existing, `accepted` Decision and rejects one that is
-   missing or not yet accepted (see Validated, above), but
-   `architecture.decision` itself still has no governed creation path —
-   every row, including this iteration's own
-   `adr.backend-stack-java24-gradle`, is a direct insert, the same gap
-   Iteration 12 disclosed and left open for Decisions when it closed the
-   equivalent gap for Elements via `provide`
-   (`docs/history/iteration-12/LESSONS.md`). Iteration 15's evidence
-   shows only that the citation check works against a pre-seeded
-   Decision, not a real "Product Owner proposes a new stack decision"
-   workflow — see Unproven, above. Revisit once a real governed
-   Decision-creation path is needed for any reason, not only for
-   Technology Profiles — see `docs/history/iteration-15/LESSONS.md`.
+Resolved as of Iteration 16, removed from this list: *does citing an
+existing `architecture.decision` row give Technology Profile governance
+real attribution, or only the appearance of it?* `architecture.decision`
+now has a real, governed creation path — a `decide` operation on the
+existing `ArchitectureChangeProposal` mechanism, the same pattern
+`provide` already established for Elements (see Validated, above). A
+Decision created entirely through review was directly demonstrated
+citable by `createTechnologyProfile`, closing the gap Iteration 15 left
+open. `decision_scope` (which elements a Decision governs) remains a
+separate, still-open thread — folded into item 6's existing secondary
+thread, above, not a new question.
 
 Resolved as of Iteration 1, removed from this list: *does the Architecture
 Change Proposal / unblocking flow actually close the loop it's designed to

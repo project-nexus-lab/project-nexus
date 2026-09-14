@@ -91,6 +91,26 @@ following it blindly.
    consuming the profile, and frontend/infrastructure/data functionality
    beyond the category table itself (all named future work). See
    `docs/history/iteration-15/`.
+7. **Iteration 16** (closed) — a real, governed creation path for
+   `architecture.decision`, closing `docs/PROJECT_KNOWLEDGE.md`'s Open
+   Question #7: Iteration 15's Technology Profile governance requires
+   citing an existing, `accepted` Decision, but nothing governs how a
+   Decision row comes to exist — every one to date is a direct insert.
+   Extends the existing `ArchitectureChangeProposal` mechanism with a
+   fourth operation, `decide` (mirroring `create`'s own shape), rather
+   than a second, parallel proposal-and-approval lifecycle built for
+   Decisions alone — the same mechanism already validated for exactly
+   this purpose (Iteration 12's `provide`), not a new one. This is also
+   the exact trigger Iteration 12's own `/review` named for
+   `architecture.change_operation`'s disclosed, presence-only check
+   constraint (*"before a fourth operation type is added"*,
+   `docs/history/iteration-12/LESSONS.md`) — resolved, not deferred
+   again: the rewritten `change_operation_check` covers `create`/
+   `retire`/`provide` retroactively as well as `decide`, verified
+   against every pre-existing test unmodified. Explicitly excludes
+   `decision_scope` population (which elements a Decision governs),
+   superseding or amending an already-accepted Decision, and any HTTP
+   write route. See `docs/history/iteration-16/`.
 
 ## Why this order
 
@@ -102,11 +122,22 @@ consistently since the reasoning that deferred incremental authoring in
 Iteration 10 until graph scale was validated. Technology Profiles (15)
 rides Iteration 13's REST surface rather than inventing a new HTTP
 layer of its own — this is about the transport, not the underlying
-governance mechanism, which stays an open, explicit decision for
-Iteration 15's own scoping (see item 6, above). Its heavier half —
-repository generation actually consuming the profile — stays deferred
-behind Repository Bootstrap's own still-Unproven push/branch/PR-at-scale
-question (see `docs/PROJECT_KNOWLEDGE.md`, Unproven).
+governance mechanism, which Iteration 15's own scoping resolved (see
+item 6, above): citing an existing, `accepted` Decision, checked at
+write time. Its heavier half — repository generation actually consuming
+the profile — stays deferred behind Repository Bootstrap's own
+still-Unproven push/branch/PR-at-scale question (see
+`docs/PROJECT_KNOWLEDGE.md`, Unproven).
+
+Iteration 16 follows immediately, not deferred as future work, because
+Iteration 15's own resolution created a dependency it disclosed rather
+than hid: Technology Profile governance now rests on Decisions being
+`accepted`, but nothing governs how a Decision comes to be `accepted`
+in the first place (`docs/PROJECT_KNOWLEDGE.md`, Open Question #7). It
+also happens to be the exact scenario Iteration 12's own `/review`
+predicted (*"before a fourth operation type is added"* to
+`architecture.change_operation`) — closing Open Question #7 and paying
+that disclosed debt turn out to be the same piece of work, not two.
 
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
