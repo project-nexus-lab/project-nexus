@@ -149,6 +149,29 @@ following it blindly.
    the workflow never posts the snapshot file at all, and the
    drift-warning would need raw-body plumbing this iteration doesn't
    yet justify. See `docs/history/iteration-18/`.
+10. **Iteration 19** (closed) — the first slice of Technology
+    Profile-driven repository generation (Iteration 15's own deferred
+    "Phase 4"). Not the full vision (real language/build/CI scaffolding)
+    — the narrower, prerequisite question of whether a resolved
+    Technology Profile can reach a generated repository at all. Wires
+    the already-existing `resolveTechnologyProfile()` into
+    `generateProjection()`, projecting the result into a new, separate
+    generated file (`.nexus/technology-profile.json`) — additive only,
+    zero effect on every repository with no Technology Profile assigned.
+    No schema migration: `repo.generated_region` already hashes and
+    drift-checks a fourth file for free. Confirmed end-to-end against a
+    real, live repository: a real Decision, a real Technology Profile, a
+    real push/PR (reusing Iteration 17's mechanism unmodified), and the
+    real pushed content independently verified to contain only genuine
+    architecture facts — the checked answer to the Iteration 17 Artifact
+    Review's own `nexusBaseUrl` finding. A real ambiguity was found and
+    fixed during `/review`: a repository can have more than one
+    primary-mapped component, which `repository_component_primary_uq`
+    does not prevent; resolution now requires exactly one, not whichever
+    sorts first. Explicitly defers real scaffolding synthesis and how a
+    repository's own category is determined when more than one category
+    is ever populated — both named, disclosed gaps, not solved here. See
+    `docs/history/iteration-19/`.
 
 ## Why this order
 
@@ -201,6 +224,15 @@ disclosed, thirteen-iteration-old gap cheaply is worth doing before
 adding a bigger feature on top of an alignment-check endpoint that
 doesn't exist yet.
 
+Iteration 19 finally turns to that bigger candidate, deliberately sliced
+narrow: not the full "emit real scaffolding" vision, but the smaller,
+prerequisite question of whether a resolved Technology Profile can
+reach a generated repository at all. This is the same bottom-up
+discipline once more, one level further up the stack this project has
+now climbed since Iteration 15 first deferred it — resolution (15),
+governance (16), push/branch/PR (17), and alignment verification (18)
+all had to hold before wiring them together was worth attempting.
+
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
 population) had its stated precondition satisfied since Iteration 12
@@ -214,9 +246,15 @@ its own slot, sequenced first.
 
 ## Future, not yet scoped
 
-- Repository generation consuming a Technology Profile to emit real
-  language/build/CI/container scaffolding (Iteration 15's own deferred
-  "Phase 4").
+- Repository generation actually *synthesizing* real language/build/
+  CI/container scaffolding content from a resolved Technology Profile
+  (the fuller half of Iteration 15's own deferred "Phase 4" — Iteration
+  19 wires resolution into a projected fact, not scaffolding
+  generation).
+- Determining which category a Component or Repository itself belongs
+  to, once more than one Technology Profile category is ever populated
+  — named since the Iteration 14a/15 architecture-clarification
+  session, still unbuilt as of Iteration 19.
 - Component-level Technology Profile overrides ("Phase 2") and
   portfolio-wide reporting over profiles ("Phase 3").
 - `move` / `split` / `merge` architecture operations (`MVP_ARCHITECTURE_V2.md`
