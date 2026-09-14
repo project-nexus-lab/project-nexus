@@ -130,6 +130,25 @@ following it blindly.
    `bootstrap_state`'s existing semantics — this iteration produced the
    evidence such a change would need, without making it. See
    `docs/history/iteration-17/`.
+9. **Iteration 18** (closed) — `POST /alignment/verify` (§10.5),
+   disclosed as cheap in Iteration 4 and never revisited until the
+   Iteration 17 Artifact Review re-surfaced it. Composes entirely from
+   already-existing functions (`resolve`, `capabilitiesOf`, plus one new
+   posted-vs-live mapping comparison) — no new port, no schema change.
+   Found, before any alignment logic was written, that the *existing*
+   generic HTTP body parser (`src/http/server.ts`) could not parse what
+   the *already-generated, already-real* CI workflow actually sends (a
+   managed-region-wrapped file, not bare JSON) — fixed, and confirmed
+   against the literal artifact: the real `.nexus/repository.json`
+   content still live on Iteration 17's own real PR was fetched and
+   POSTed to a local server, returning `ok: true`. A real correctness
+   bug was also found and fixed during `/review`: a succession chain
+   that dead-ends in a retired element was being reported as a mild
+   "superseded" warning instead of the failure it actually is.
+   Explicitly defers the two staleness-related warn conditions (§10.5):
+   the workflow never posts the snapshot file at all, and the
+   drift-warning would need raw-body plumbing this iteration doesn't
+   yet justify. See `docs/history/iteration-18/`.
 
 ## Why this order
 
@@ -144,9 +163,9 @@ layer of its own — this is about the transport, not the underlying
 governance mechanism, which Iteration 15's own scoping resolved (see
 item 6, above): citing an existing, `accepted` Decision, checked at
 write time. Its heavier half — repository generation actually consuming
-the profile — stays deferred behind Repository Bootstrap's own
-still-Unproven push/branch/PR-at-scale question (see
-`docs/PROJECT_KNOWLEDGE.md`, Unproven).
+the profile — stayed deferred behind Repository Bootstrap's own
+push/branch/PR question, resolved as of Iteration 17 (see item 8,
+above; `docs/PROJECT_KNOWLEDGE.md`, Validated).
 
 Iteration 16 follows immediately, not deferred as future work, because
 Iteration 15's own resolution created a dependency it disclosed rather
@@ -168,6 +187,19 @@ way graph scale was validated (Iteration 10) before incremental
 authoring was built on top of it, rather than discovering push/branch/PR's
 real failure modes for the first time inside a larger feature that also
 depends on them.
+
+Iteration 18 follows 17 on the strength of the Iteration 17 Artifact
+Review, not because it depends on 17's own mechanism: reading the three
+real files Iteration 17 pushed to a real repository surfaced two
+concrete candidates (`docs/history/iteration-17/REPORT.md`'s own
+follow-on questions), and 18 is the smaller, more contained of the two
+— composition of already-existing functions, no new port or schema.
+Repository generation actually consuming a Technology Profile (Phase 4,
+"Future, not yet scoped," below) — the bigger of the two candidates —
+stays queued behind it, not because 18 blocks it, but because closing a
+disclosed, thirteen-iteration-old gap cheaply is worth doing before
+adding a bigger feature on top of an alignment-check endpoint that
+doesn't exist yet.
 
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
