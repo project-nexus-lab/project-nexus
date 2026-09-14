@@ -30,21 +30,64 @@ import type { LocalSubgraph } from "../graph/traversals.js";
  * kind. Additive and optional: omitted entirely when no profile is
  * resolved, which is every repository in this project's real seed data
  * today.
+ *
+ * The managed-region markers became format-aware in Iteration 20
+ * (`docs/history/iteration-20/SCOPE.md`): the original single,
+ * HTML-comment-style marker is not valid YAML, verified directly
+ * against this project's own `yaml` package. Harmless for the
+ * `.nexus/*.json` files (self-consumed by Nexus's own unwrap-aware
+ * code) but not for `.github/workflows/nexus-alignment.yml`, whose only
+ * real consumer is GitHub Actions — an external system that never
+ * unwraps anything. Every repository pushed for real in Iterations 17
+ * and 19 would have had this exact workflow file rejected by GitHub
+ * Actions as invalid YAML, unrelated to Iteration 18's own alignment
+ * logic, which has simply never had a real chance to run before now.
  */
 
-const BEGIN_MARKER = "<!-- nexus:begin generated · do not edit -->";
-const END_MARKER = "<!-- nexus:end generated -->";
+/**
+ * Two marker styles — Iteration 20 (`docs/history/iteration-20/SCOPE.md`):
+ * the original HTML-comment style is not valid YAML (verified directly
+ * against this project's own `yaml` package: a bare `<!-- ... -->` line
+ * is an invalid implicit scalar key, not a comment). Harmless for the
+ * `.nexus/*.json` files — nothing but Nexus's own unwrap-aware code ever
+ * reads them — but not for `.github/workflows/nexus-alignment.yml`,
+ * whose only real consumer is GitHub Actions, which never unwraps
+ * anything. `"html"` stays the default so every existing call site is
+ * unaffected; only the one YAML file passes `"yaml"` explicitly.
+ */
+const MARKERS = {
+  html: {
+    begin: "<!-- nexus:begin generated · do not edit -->",
+    end: "<!-- nexus:end generated -->",
+  },
+  yaml: {
+    begin: "# nexus:begin generated · do not edit",
+    end: "# nexus:end generated",
+  },
+} as const;
 
-export function wrapManagedRegion(body: string): string {
-  return `${BEGIN_MARKER}\n${body}\n${END_MARKER}`;
+export function wrapManagedRegion(body: string, style: keyof typeof MARKERS = "html"): string {
+  const { begin, end } = MARKERS[style];
+  return `${begin}\n${body}\n${end}`;
 }
 
-/** Returns the text strictly between the markers, or null if the markers are missing or malformed. */
+/**
+ * Returns the text strictly between the markers, or null if neither
+ * marker style is found. Tries `"html"` first, then `"yaml"` — callers
+ * (`checkDrift()`, `generateProjection()`'s hashing loop,
+ * `readJsonBody()`) never need to know or pass which style a given file
+ * actually uses, the same "try the specific thing, fall back" shape
+ * `readJsonBody()` already established in Iteration 18.
+ */
 export function extractManagedRegion(fileContent: string): string | null {
-  const start = fileContent.indexOf(BEGIN_MARKER);
-  const end = fileContent.indexOf(END_MARKER);
-  if (start === -1 || end === -1 || end < start) return null;
-  return fileContent.slice(start + BEGIN_MARKER.length, end).trim();
+  for (const { begin, end } of Object.values(MARKERS)) {
+    const start = fileContent.indexOf(begin);
+    const stop = fileContent.indexOf(end);
+    if (start !== -1 && stop !== -1 && stop >= start) {
+      return fileContent.slice(start + begin.length, stop).trim();
+    }
+  }
+  return null;
 }
 
 /** sha256 of the managed region only — never of the whole file, so content outside the markers cannot affect it. */
@@ -114,6 +157,7 @@ export function render(input: RenderInput): ManagedFile[] {
       "          curl -X POST \"$NEXUS_BASE_URL/alignment/verify\"",
       "          --data @.nexus/repository.json",
     ].join("\n"),
+    "yaml",
   );
 
   const files: ManagedFile[] = [

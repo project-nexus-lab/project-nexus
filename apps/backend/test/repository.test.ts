@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { parse as parseYaml } from "yaml";
 import { assignTechnologyProfile, createTechnologyProfile } from "../src/architecture/technology-profile.js";
 import type { NexusDb } from "../src/db/client.js";
-import { extractManagedRegion, render } from "../src/repository/generate.js";
+import { extractManagedRegion, render, wrapManagedRegion } from "../src/repository/generate.js";
 import {
   activateRepository,
   checkDrift,
@@ -341,4 +342,71 @@ test("generateProjection() with two distinct primary-mapped components (a real a
     files.map((f) => f.path),
     [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
   );
+});
+
+test("wrapManagedRegion(body, 'yaml') round-trips through extractManagedRegion, and default ('html') is byte-identical to before Iteration 20", async () => {
+  const htmlDefault = wrapManagedRegion("hello");
+  const htmlExplicit = wrapManagedRegion("hello", "html");
+  assert.equal(htmlDefault, htmlExplicit);
+  assert.equal(
+    htmlDefault,
+    "<!-- nexus:begin generated · do not edit -->\nhello\n<!-- nexus:end generated -->",
+  );
+  assert.equal(extractManagedRegion(htmlDefault), "hello");
+
+  const yamlWrapped = wrapManagedRegion("name: nexus-alignment", "yaml");
+  assert.equal(yamlWrapped, "# nexus:begin generated · do not edit\nname: nexus-alignment\n# nexus:end generated");
+  assert.equal(extractManagedRegion(yamlWrapped), "name: nexus-alignment");
+});
+
+test("extractManagedRegion returns null for content matching neither marker style", () => {
+  assert.equal(extractManagedRegion("just some plain text, no markers at all"), null);
+});
+
+test("render()'s CI workflow file (Iteration 20: YAML-native markers) is valid YAML, markers included, as it would actually be committed", async () => {
+  const [, , alignmentWorkflowFile] = render({
+    repository: { id: "repo.iter20-yaml", name: "iter20-yaml", defaultBranch: "main" },
+    componentIds: [],
+    subgraphs: [],
+    templateVersion: "v1",
+  });
+  assert.ok(alignmentWorkflowFile);
+  assert.equal(alignmentWorkflowFile.path, ".github/workflows/nexus-alignment.yml");
+  // Parses the whole file, markers included -- exactly what GitHub Actions
+  // itself would receive, not only the extracted region.
+  const parsed = parseYaml(alignmentWorkflowFile.content);
+  assert.deepEqual(parsed, {
+    name: "nexus-alignment",
+    on: ["pull_request"],
+    jobs: {
+      verify: {
+        "runs-on": "ubuntu-latest",
+        steps: [
+          { run: 'curl -X POST "$NEXUS_BASE_URL/alignment/verify" --data @.nexus/repository.json\n' },
+        ],
+      },
+    },
+  });
+});
+
+test("checkDrift against the CI workflow file specifically: a hand-edit outside the (now YAML-native) markers does not trigger drift; one inside does", async () => {
+  await declareRepository(db, { id: "repo.iter20-drift", name: "iter20-drift", provider: "noop" });
+  await provisionRepository(db, "repo.iter20-drift", noop);
+  await registerMapping(db, "repo.iter20-drift", "comp.invoice-service", false);
+  const [, , alignmentWorkflowFile] = await generateProjection(db, "repo.iter20-drift", "v1");
+  assert.ok(alignmentWorkflowFile);
+
+  const original = alignmentWorkflowFile.content;
+  const region = extractManagedRegion(original);
+  assert.ok(region, "generated CI workflow content must contain a managed region");
+
+  const editedOutside = `# a human added this note above the generated region\n${original}\n# and this one below`;
+  const outsideResult = await checkDrift(db, "repo.iter20-drift", alignmentWorkflowFile.path, editedOutside);
+  assert.equal(outsideResult.drifted, false);
+  assert.equal(outsideResult.currentHash, outsideResult.storedHash);
+
+  const editedInside = original.replace(region, region.replace("ubuntu-latest", "ubuntu-22.04"));
+  const insideResult = await checkDrift(db, "repo.iter20-drift", alignmentWorkflowFile.path, editedInside);
+  assert.equal(insideResult.drifted, true);
+  assert.notEqual(insideResult.currentHash, insideResult.storedHash);
 });
