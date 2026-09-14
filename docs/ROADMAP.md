@@ -111,6 +111,25 @@ following it blindly.
    `decision_scope` population (which elements a Decision governs),
    superseding or amending an already-accepted Decision, and any HTTP
    write route. See `docs/history/iteration-16/`.
+8. **Iteration 17** (closed) — does provisioning success predict
+   push/branch/PR success against a real repository? This project's
+   oldest Unproven item, on record since Iteration 5 and untouched
+   through eleven iterations since — resolved for a single, first-ever
+   bootstrap push: a real branch was pushed and a real PR opened
+   against a real, disposable repository, independently verified via
+   `gh pr view` to carry exactly the files `generateProjection`
+   rendered. Added exactly one new port method,
+   `openPullRequestWithChanges`, validated first against
+   `NoopVcsProvider` before `GhCliVcsProvider` attempted it for real —
+   the same no-op-first sequencing already used four times. Two real
+   gaps surfaced by the live run itself, not anticipated correctly in
+   advance: a freshly `gh repo create`d repository has no commit history
+   to branch from, and a repeat push against an already-bootstrapped
+   branch fails as a real push rejection, not a "PR already exists"
+   error. No changes to `lifecycle.ts`, `repo.repository`'s schema, or
+   `bootstrap_state`'s existing semantics — this iteration produced the
+   evidence such a change would need, without making it. See
+   `docs/history/iteration-17/`.
 
 ## Why this order
 
@@ -138,6 +157,17 @@ also happens to be the exact scenario Iteration 12's own `/review`
 predicted (*"before a fourth operation type is added"* to
 `architecture.change_operation`) — closing Open Question #7 and paying
 that disclosed debt turn out to be the same piece of work, not two.
+
+Iteration 17 turns to the other still-Unproven question named just
+above — push/branch/PR against a real repository — deliberately before
+repository generation actually consuming a Technology Profile (Phase 4,
+"Future, not yet scoped," below) is attempted. This is the same
+bottom-up discipline applied one level down the stack: Phase 4 depends
+on this working, so this gets validated in isolation first, the same
+way graph scale was validated (Iteration 10) before incremental
+authoring was built on top of it, rather than discovering push/branch/PR's
+real failure modes for the first time inside a larger feature that also
+depends on them.
 
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
