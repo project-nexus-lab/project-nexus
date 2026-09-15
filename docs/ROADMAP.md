@@ -280,11 +280,17 @@ its own slot, sequenced first.
 
 ## Future, not yet scoped
 
-- Repository generation actually *synthesizing* real language/build/
-  CI/container scaffolding content from a resolved Technology Profile
+- **Repository generation actually *synthesizing* real language/build/
+  CI/container scaffolding content from a resolved Technology Profile**
   (the fuller half of Iteration 15's own deferred "Phase 4" — Iteration
   19 wires resolution into a projected fact, not scaffolding
-  generation).
+  generation). **Gated on `docs/PROJECT_KNOWLEDGE.md`'s Open Question
+  #7** (repository/Nexus dependency direction, raised by a dedicated
+  architecture review between Iterations 20 and 21): scaffolding this
+  project generates from here on bakes in whatever assumption that
+  decision settles about whether generated repositories may ever
+  reference a live Nexus. Scoping this before #7 is settled risks
+  regenerating every future artifact once it is.
 - Determining which category a Component or Repository itself belongs
   to, once more than one Technology Profile category is ever populated
   — named since the Iteration 14a/15 architecture-clarification
@@ -295,6 +301,16 @@ its own slot, sequenced first.
   §5.3, explicitly iteration-2-or-later since the document's own
   numbering, not this roadmap's).
 - A second `AgentRuntimeAdapter` beyond the Claude SDK adapter.
+
+**A note on Iteration 18's own deferred warn conditions** (snapshot-hash-stale,
+managed-region-drift, `docs/history/iteration-18/SCOPE.md`): both were
+deferred because the repository-side CI workflow doesn't post enough
+data to check them. That justification assumes Model A (repository
+calls Nexus) continues to hold. If Open Question #7 resolves toward
+Nexus-initiated verification instead, the justification evaporates —
+Nexus would already hold whatever it needs to check by fetching the
+repository's content itself — and these should not be built against the
+old assumption in the meantime.
 
 ## Standing awareness — not scheduled
 
