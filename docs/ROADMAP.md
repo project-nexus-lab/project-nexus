@@ -197,6 +197,27 @@ following it blindly.
     Profile-driven scaffolding synthesis) — closed first, before
     building further on the same generation pipeline. See
     `docs/history/iteration-20/`.
+12. **Iteration 21** (closed) — resolves
+    `docs/PROJECT_KNOWLEDGE.md`'s Open Question #7: repositories stop
+    being Nexus clients. Verified, before writing any code, the
+    architecture review's own unverified recommendation: GitHub's
+    Checks API requires a GitHub App and returns a flat 403 to this
+    project's actual credentials; the Commit Status API works with
+    those same credentials, tested directly against a real repository.
+    Retires the repository-initiated mechanism rather than adding a
+    second one alongside it — `render()` no longer generates
+    `nexusBaseUrl` or `.github/workflows/nexus-alignment.yml` at all —
+    and adds a new, Nexus-initiated `verifyAndPublishAlignment()`
+    (`src/graph/alignment.ts`) that fetches a repository's own committed
+    state itself and posts a real Commit Status onto its default
+    branch, reusing Iteration 18's `verifyRepositoryAlignment()`
+    unmodified. Removes the exact file Iteration 20 had just made valid
+    YAML — a disclosed, deliberate consequence of retiring the model
+    that file existed to serve, not a contradiction of that work.
+    Explicitly defers how Nexus learns *when* to check a repository (no
+    real deployment exists to receive a webhook or run a scheduler) and
+    verifying open-PR branches rather than only the default branch. See
+    `docs/history/iteration-21/SCOPE.md`.
 
 ## Why this order
 
@@ -266,6 +287,15 @@ bug in the generation pipeline every later iteration in this stack
 depends on takes priority over building further on top of it, the same
 reasoning that put Iteration 18 ahead of the bigger Phase 4 candidate
 in the first place.
+
+Iteration 21 follows the same pattern once more, one level up: fixing
+Iteration 20's own workflow file prompted a dedicated architecture
+review of the mechanism that file existed to serve, and that review
+surfaced Open Question #7 as a real, unresolved fork sitting directly
+in front of real scaffolding synthesis. Resolving it now — rather than
+scoping scaffolding synthesis against an undecided foundation — is the
+same sequencing discipline as 18 and 20 before it, applied to a larger,
+more consequential question this time.
 
 Iteration 14a was inserted ahead of 14, not appended after it, on a
 roadmap-reconciliation pass: Open Question #5 (`relatedElements`
