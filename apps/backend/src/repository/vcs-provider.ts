@@ -19,6 +19,18 @@
  * granularity ("files rendered; branch nexus/bootstrap; PR opened" is one
  * step's effect, not three), not `pushBranch`/`openPullRequest` split
  * apart. Deliberately does not change `create()` or `provisionRepository`.
+ *
+ * `getFileAtRef` and `postCommitStatus` were added in Iteration 21
+ * (`docs/history/iteration-21/SCOPE.md`), resolving
+ * `docs/PROJECT_KNOWLEDGE.md`'s Open Question #7: repositories stop
+ * being Nexus clients. Together they let Nexus verify a repository from
+ * the *outside* — fetch what it actually committed, post a real result
+ * onto it — rather than the repository having to call Nexus itself.
+ * Added to the port, not left `GhCliVcsProvider`-only (unlike
+ * `deleteRepository`, §10.2 never describes deletion at all): a
+ * hermetic caller needs a fake counterpart for both, the same reason
+ * `openPullRequestWithChanges` is on the port rather than bolted onto
+ * one adapter.
  */
 
 export interface VcsProviderCreateInput {
@@ -49,6 +61,20 @@ export interface VcsProviderOpenPullRequestResult {
   prUrl: string;
 }
 
+export interface VcsProviderFileAtRef {
+  content: string;
+  /** The exact commit SHA `content` was read at — not necessarily `ref` itself, if `ref` was a branch name. */
+  sha: string;
+}
+
+export type VcsProviderCommitStatusState = "success" | "failure" | "error" | "pending";
+
+export interface VcsProviderCommitStatusInput {
+  state: VcsProviderCommitStatusState;
+  context: string;
+  description: string;
+}
+
 export interface VcsProvider {
   readonly id: string;
   create(input: VcsProviderCreateInput): Promise<VcsProviderCreateResult>;
@@ -67,6 +93,9 @@ export interface VcsProvider {
   openPullRequestWithChanges(
     input: VcsProviderOpenPullRequestInput,
   ): Promise<VcsProviderOpenPullRequestResult>;
+  /** `null`, not a throw, when `path` does not exist at `ref` — an unbootstrapped repository is a real, expected state, not an error. */
+  getFileAtRef(providerRef: string, path: string, ref: string): Promise<VcsProviderFileAtRef | null>;
+  postCommitStatus(providerRef: string, sha: string, input: VcsProviderCommitStatusInput): Promise<void>;
 }
 
 /** Does no real provisioning. Exists to validate the state machine and the port, not to stand in for GitHub. */
@@ -81,5 +110,13 @@ export class NoopVcsProvider implements VcsProvider {
     input: VcsProviderOpenPullRequestInput,
   ): Promise<VcsProviderOpenPullRequestResult> {
     return { prUrl: `noop://${input.providerRef}/pull/${input.branch}` };
+  }
+
+  async getFileAtRef(): Promise<VcsProviderFileAtRef | null> {
+    return null;
+  }
+
+  async postCommitStatus(): Promise<void> {
+    // does no real I/O — exists to validate the port, not to stand in for GitHub.
   }
 }

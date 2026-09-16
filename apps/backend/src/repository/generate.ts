@@ -34,14 +34,29 @@ import type { LocalSubgraph } from "../graph/traversals.js";
  * The managed-region markers became format-aware in Iteration 20
  * (`docs/history/iteration-20/SCOPE.md`): the original single,
  * HTML-comment-style marker is not valid YAML, verified directly
- * against this project's own `yaml` package. Harmless for the
- * `.nexus/*.json` files (self-consumed by Nexus's own unwrap-aware
- * code) but not for `.github/workflows/nexus-alignment.yml`, whose only
- * real consumer is GitHub Actions — an external system that never
- * unwraps anything. Every repository pushed for real in Iterations 17
- * and 19 would have had this exact workflow file rejected by GitHub
- * Actions as invalid YAML, unrelated to Iteration 18's own alignment
- * logic, which has simply never had a real chance to run before now.
+ * against this project's own `yaml` package. That fix targeted
+ * `.github/workflows/nexus-alignment.yml`, the one generated file whose
+ * real consumer (GitHub Actions) never unwraps anything — see Iteration
+ * 21, below, for why that file no longer exists. The `"yaml"` marker
+ * style itself stays available in `wrapManagedRegion()` for whatever
+ * future generated file needs it next (real scaffolding synthesis,
+ * still deferred) — proven necessary once already, not removed merely
+ * because nothing currently calls it.
+ *
+ * `nexusBaseUrl` and `.github/workflows/nexus-alignment.yml` were
+ * removed in Iteration 21 (`docs/history/iteration-21/SCOPE.md`),
+ * resolving `docs/PROJECT_KNOWLEDGE.md`'s Open Question #7: repositories
+ * stop being Nexus clients. `nexusBaseUrl` was dead data — written,
+ * read by nothing, verified directly by grep before this iteration.
+ * The workflow's only purpose was making the repository call Nexus;
+ * `src/graph/alignment.ts#verifyAndPublishAlignment` now does the
+ * reverse — Nexus fetches the repository's own committed state itself
+ * and posts a real GitHub Commit Status, using credentials this project
+ * already has (the Checks API would need a GitHub App; tested directly
+ * against a real repository, ruled out before writing any code).
+ * `repositoryJson`'s `schemaVersion` bumped from 2 to 3 to reflect this
+ * real shape change — nothing currently reads the field, but it exists
+ * exactly to signal this.
  */
 
 /**
@@ -108,7 +123,6 @@ export interface RenderInput {
   componentIds: string[];
   subgraphs: LocalSubgraph[];
   templateVersion: string;
-  nexusBaseUrl?: string;
   /**
    * Already resolved by the caller (Iteration 19) — `render()` stays pure
    * and does no Technology Profile lookup of its own, the same reason it
@@ -134,8 +148,7 @@ export function render(input: RenderInput): ManagedFile[] {
       {
         repositoryId: input.repository.id,
         componentIds,
-        nexusBaseUrl: input.nexusBaseUrl ?? "https://nexus.invalid",
-        schemaVersion: 2,
+        schemaVersion: 3,
         templateVersion: input.templateVersion,
       },
       null,
@@ -145,25 +158,9 @@ export function render(input: RenderInput): ManagedFile[] {
 
   const architectureSnapshotJson = wrapManagedRegion(JSON.stringify(subgraphs, null, 2));
 
-  const alignmentWorkflowYaml = wrapManagedRegion(
-    [
-      "name: nexus-alignment",
-      "on: [pull_request]",
-      "jobs:",
-      "  verify:",
-      "    runs-on: ubuntu-latest",
-      "    steps:",
-      "      - run: >",
-      "          curl -X POST \"$NEXUS_BASE_URL/alignment/verify\"",
-      "          --data @.nexus/repository.json",
-    ].join("\n"),
-    "yaml",
-  );
-
   const files: ManagedFile[] = [
     { path: ".nexus/repository.json", content: repositoryJson },
     { path: ".nexus/architecture.snapshot.json", content: architectureSnapshotJson },
-    { path: ".github/workflows/nexus-alignment.yml", content: alignmentWorkflowYaml },
   ];
 
   if (input.technologyProfile) {

@@ -1,4 +1,6 @@
 import type { SqlExecutor } from "../db/sql-executor.js";
+import { extractManagedRegion } from "../repository/generate.js";
+import type { VcsProvider, VcsProviderCommitStatusState } from "../repository/vcs-provider.js";
 import { capabilitiesOf, resolve } from "./traversals.js";
 
 /** Alignment context (§8.5) — named queries, no state of its own. */
@@ -213,4 +215,143 @@ export async function verifyRepositoryAlignment(
   }
 
   return { ok: failures.length === 0, failures, warnings };
+}
+
+/**
+ * GitHub does not truncate a commit status `description` past this
+ * length — it rejects the request outright with a 422 ("Description is
+ * too long (maximum is 140 characters)"), confirmed directly against a
+ * real, disposable repository, not assumed from documentation (a first
+ * attempt at reading GitHub's own published REST API docs did not even
+ * mention a length limit). Slicing to exactly this length client-side is
+ * therefore load-bearing, not cosmetic: `verification.failures` can
+ * concatenate an unbounded number of messages, and without this, a
+ * repository with only two or three real alignment failures already
+ * risks a thrown `GhCliError` instead of a posted status.
+ */
+const COMMIT_STATUS_DESCRIPTION_MAX_LENGTH = 140;
+
+const COMMIT_STATUS_CONTEXT = "nexus/alignment";
+
+export interface AlignmentPublishResult {
+  status: VcsProviderCommitStatusState;
+  description: string;
+  /** The exact commit the status was posted against, or `null` when nothing was posted (repository unprovisioned, file missing, or unparseable). */
+  sha: string | null;
+  verification: AlignmentVerifyResult | null;
+}
+
+/**
+ * §10.5's Nexus-initiated half (Iteration 21,
+ * `docs/history/iteration-21/SCOPE.md`): resolves the repository's own
+ * `provider_ref`/default branch, fetches `.nexus/repository.json` at
+ * that branch's current commit, reuses `verifyRepositoryAlignment()`
+ * unmodified against its managed-region content, and posts the result
+ * as a real GitHub Commit Status onto that exact commit — the reverse
+ * direction of the repository-initiated mechanism this iteration
+ * retires (`src/repository/generate.ts`'s module doc comment).
+ *
+ * Every "file missing/unparseable" case (SCOPE.md item 4) returns a
+ * `status: "error"` result and posts nothing — an unprovisioned or
+ * not-yet-bootstrapped repository is a real, expected state, not a bug,
+ * and there is no commit to post a status against in that case anyway.
+ * Only `verifyRepositoryAlignment`'s own two outcomes (`ok: true` /
+ * `ok: false`) reach `postCommitStatus`.
+ */
+export async function verifyAndPublishAlignment(
+  db: SqlExecutor,
+  repositoryId: string,
+  vcsProvider: VcsProvider,
+): Promise<AlignmentPublishResult> {
+  const { rows } = await db.query<{ provider_ref: string | null; default_branch: string }>(
+    `select provider_ref, default_branch from repo.repository where id = $1`,
+    [repositoryId],
+  );
+  const repo = rows[0];
+  if (!repo) {
+    return {
+      status: "error",
+      description: `repository ${repositoryId} does not exist`,
+      sha: null,
+      verification: null,
+    };
+  }
+  if (!repo.provider_ref) {
+    return {
+      status: "error",
+      description: `repository ${repositoryId} has not been provisioned — no provider_ref`,
+      sha: null,
+      verification: null,
+    };
+  }
+
+  const file = await vcsProvider.getFileAtRef(
+    repo.provider_ref,
+    ".nexus/repository.json",
+    repo.default_branch,
+  );
+  if (!file) {
+    return {
+      status: "error",
+      description: `.nexus/repository.json not found at ${repo.provider_ref}@${repo.default_branch}`,
+      sha: null,
+      verification: null,
+    };
+  }
+
+  const region = extractManagedRegion(file.content);
+  if (region === null) {
+    return {
+      status: "error",
+      description: ".nexus/repository.json has no managed region",
+      sha: file.sha,
+      verification: null,
+    };
+  }
+
+  let requestBody: unknown;
+  try {
+    requestBody = JSON.parse(region);
+  } catch {
+    return {
+      status: "error",
+      description: ".nexus/repository.json's managed region is not valid JSON",
+      sha: file.sha,
+      verification: null,
+    };
+  }
+
+  let verification: AlignmentVerifyResult;
+  try {
+    verification = await verifyRepositoryAlignment(db, requestBody);
+  } catch (err) {
+    if (err instanceof InvalidAlignmentRequestError) {
+      return {
+        status: "error",
+        description: `.nexus/repository.json does not match the expected shape: ${err.message}`,
+        sha: file.sha,
+        verification: null,
+      };
+    }
+    throw err;
+  }
+
+  const status: VcsProviderCommitStatusState = verification.ok ? "success" : "failure";
+  const rawDescription = verification.ok
+    ? "repository is aligned with live Nexus state"
+    : `alignment failed: ${verification.failures.map((f) => f.message).join("; ")}`;
+  // Truncated once, then reused for both the posted status and the return
+  // value — a real, live-verified GitHub run caught these diverging when
+  // truncation was applied only on the posted side: the result claimed a
+  // description GitHub had actually cut short, which is worse than the
+  // truncation itself.
+  const description = rawDescription.slice(0, COMMIT_STATUS_DESCRIPTION_MAX_LENGTH);
+
+  await vcsProvider.postCommitStatus(repo.provider_ref, file.sha, {
+    state: status,
+    context: COMMIT_STATUS_CONTEXT,
+    description,
+  });
+
+  return { status, description, sha: file.sha, verification };
 }

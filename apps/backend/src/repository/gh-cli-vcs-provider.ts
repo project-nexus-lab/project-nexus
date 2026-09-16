@@ -5,8 +5,10 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type {
   VcsProvider,
+  VcsProviderCommitStatusInput,
   VcsProviderCreateInput,
   VcsProviderCreateResult,
+  VcsProviderFileAtRef,
   VcsProviderOpenPullRequestInput,
   VcsProviderOpenPullRequestResult,
 } from "./vcs-provider.js";
@@ -250,6 +252,76 @@ export class GhCliVcsProvider implements VcsProvider {
       return { prUrl };
     } finally {
       await rm(workDir, { recursive: true, force: true });
+    }
+  }
+
+  /** True for a real 404 from the GitHub API — distinguished from every other failure so callers can treat "doesn't exist" as a real, expected state rather than an error. */
+  private isNotFound(err: unknown): boolean {
+    const e = err as ExecFileErrorLike;
+    const stderr = (e.stderr ?? "").toString();
+    return /HTTP 404|"message":\s*"Not Found"/i.test(stderr);
+  }
+
+  /**
+   * §10.5's Nexus-initiated half (Iteration 21,
+   * `docs/history/iteration-21/SCOPE.md`): resolves `ref` to an exact
+   * commit SHA first (`ref` may be a branch name, and the SHA the file
+   * was actually read at is what a commit status must be posted
+   * against), then fetches `path` at that exact SHA — avoids a race
+   * where the branch moves between resolving and reading. `null`, not a
+   * throw, for a real 404 at either step: a repository that was never
+   * bootstrapped, or whose default branch doesn't yet carry the
+   * requested file, is a real, expected state, not an error.
+   */
+  async getFileAtRef(providerRef: string, path: string, ref: string): Promise<VcsProviderFileAtRef | null> {
+    let sha: string;
+    try {
+      const result = await execFileAsync("gh", ["api", `repos/${providerRef}/commits/${ref}`, "--jq", ".sha"]);
+      sha = result.stdout.trim();
+    } catch (err) {
+      if (this.isNotFound(err)) return null;
+      throw mapGhError(err, `gh api repos/${providerRef}/commits/${ref}`);
+    }
+
+    let base64Content: string;
+    try {
+      const result = await execFileAsync("gh", [
+        "api",
+        `repos/${providerRef}/contents/${path}?ref=${sha}`,
+        "--jq",
+        ".content",
+      ]);
+      base64Content = result.stdout.trim();
+    } catch (err) {
+      if (this.isNotFound(err)) return null;
+      throw mapGhError(err, `gh api repos/${providerRef}/contents/${path}`);
+    }
+
+    return { content: Buffer.from(base64Content, "base64").toString("utf8"), sha };
+  }
+
+  /**
+   * A plain Commit Status, not a Checks-API check run — checked
+   * directly against a real repository before this iteration wrote any
+   * code: the Checks API (`POST .../check-runs`) requires GitHub App
+   * authentication and returns a flat 403 to this project's own classic
+   * OAuth token; the Commit Status API works with that same token,
+   * unchanged.
+   */
+  async postCommitStatus(providerRef: string, sha: string, input: VcsProviderCommitStatusInput): Promise<void> {
+    try {
+      await execFileAsync("gh", [
+        "api",
+        `repos/${providerRef}/statuses/${sha}`,
+        "-f",
+        `state=${input.state}`,
+        "-f",
+        `context=${input.context}`,
+        "-f",
+        `description=${input.description}`,
+      ]);
+    } catch (err) {
+      throw mapGhError(err, `gh api repos/${providerRef}/statuses/${sha}`);
     }
   }
 }

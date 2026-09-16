@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { parse as parseYaml } from "yaml";
 import { assignTechnologyProfile, createTechnologyProfile } from "../src/architecture/technology-profile.js";
 import type { NexusDb } from "../src/db/client.js";
 import { extractManagedRegion, render, wrapManagedRegion } from "../src/repository/generate.js";
@@ -53,7 +52,7 @@ test("the full state machine, driven start to finish: declared -> provisioned ->
   assert.equal(await getState("repo.export-service"), "bootstrapped");
   assert.deepEqual(
     files.map((f) => f.path),
-    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json"],
   );
 
   await activateRepository(db, "repo.export-service");
@@ -144,7 +143,7 @@ test("a hand-edit outside the managed-region markers does not trigger drift; a h
   assert.equal(outsideResult.drifted, false);
   assert.equal(outsideResult.currentHash, outsideResult.storedHash);
 
-  const editedInside = original.replace(region, region.replace('"schemaVersion": 2', '"schemaVersion": 999'));
+  const editedInside = original.replace(region, region.replace('"schemaVersion": 3', '"schemaVersion": 999'));
   const insideResult = await checkDrift(db, "repo.drift-check", repositoryJsonFile.path, editedInside);
   assert.equal(insideResult.drifted, true);
   assert.notEqual(insideResult.currentHash, insideResult.storedHash);
@@ -174,7 +173,7 @@ test("NoopVcsProvider.openPullRequestWithChanges (Iteration 17) does no real I/O
   assert.equal(result.prUrl, "noop://noop/example/pull/nexus/bootstrap");
 });
 
-test("render() with technologyProfile omitted produces exactly today's three files, byte-identical to before Iteration 19", async () => {
+test("render() with technologyProfile omitted produces exactly today's two files (Iteration 21: baseline dropped from three)", async () => {
   const files = render({
     repository: { id: "repo.iter19-none", name: "iter19-none", defaultBranch: "main" },
     componentIds: [],
@@ -183,11 +182,11 @@ test("render() with technologyProfile omitted produces exactly today's three fil
   });
   assert.deepEqual(
     files.map((f) => f.path),
-    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json"],
   );
 });
 
-test("render() with a real technologyProfile adds a fourth file, .nexus/technology-profile.json, with the resolved profile's own fields verbatim", async () => {
+test("render() with a real technologyProfile adds a third file, .nexus/technology-profile.json, with the resolved profile's own fields verbatim", async () => {
   const files = render({
     repository: { id: "repo.iter19-with-profile", name: "iter19-with-profile", defaultBranch: "main" },
     componentIds: [],
@@ -207,11 +206,10 @@ test("render() with a real technologyProfile adds a fourth file, .nexus/technolo
     [
       ".nexus/repository.json",
       ".nexus/architecture.snapshot.json",
-      ".github/workflows/nexus-alignment.yml",
       ".nexus/technology-profile.json",
     ],
   );
-  const region = extractManagedRegion(files[3]?.content as string);
+  const region = extractManagedRegion(files[2]?.content as string);
   assert.deepEqual(region && JSON.parse(region), {
     profileId: "tech.iter19-java24-gradle",
     category: "backend",
@@ -222,7 +220,7 @@ test("render() with a real technologyProfile adds a fourth file, .nexus/technolo
   });
 });
 
-test("generateProjection() resolves a real Technology Profile end-to-end via the repository's primary-mapped component, and hashes the fourth file the same way as the other three", async () => {
+test("generateProjection() resolves a real Technology Profile end-to-end via the repository's primary-mapped component, and hashes the third file the same way as the other two", async () => {
   await db.query(
     `insert into architecture.decision (id, title, status, statement)
      values ('adr.iter19-backend-stack', 'Backend stack', 'accepted', 'stmt')`,
@@ -259,7 +257,6 @@ test("generateProjection() resolves a real Technology Profile end-to-end via the
     [
       ".nexus/repository.json",
       ".nexus/architecture.snapshot.json",
-      ".github/workflows/nexus-alignment.yml",
       ".nexus/technology-profile.json",
     ],
   );
@@ -274,7 +271,7 @@ test("generateProjection() resolves a real Technology Profile end-to-end via the
     decisionId: "adr.iter19-backend-stack",
   });
 
-  // Iteration 4's own mechanism, unmodified, already covers a fourth file.
+  // Iteration 4's own mechanism, unmodified, already covers a third file.
   const { rows } = await db.query<{ region_hash: string }>(
     `select region_hash from repo.generated_region where repository_id = 'repo.iter19-primary' and file_path = '.nexus/technology-profile.json'`,
   );
@@ -304,7 +301,7 @@ test("generateProjection() with no primary-mapped component skips Technology Pro
   const files = await generateProjection(db, "repo.iter19-no-primary", "v1");
   assert.deepEqual(
     files.map((f) => f.path),
-    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json"],
   );
 });
 
@@ -340,7 +337,7 @@ test("generateProjection() with two distinct primary-mapped components (a real a
   const files = await generateProjection(db, "repo.iter19-two-primaries", "v1");
   assert.deepEqual(
     files.map((f) => f.path),
-    [".nexus/repository.json", ".nexus/architecture.snapshot.json", ".github/workflows/nexus-alignment.yml"],
+    [".nexus/repository.json", ".nexus/architecture.snapshot.json"],
   );
 });
 
@@ -363,50 +360,9 @@ test("extractManagedRegion returns null for content matching neither marker styl
   assert.equal(extractManagedRegion("just some plain text, no markers at all"), null);
 });
 
-test("render()'s CI workflow file (Iteration 20: YAML-native markers) is valid YAML, markers included, as it would actually be committed", async () => {
-  const [, , alignmentWorkflowFile] = render({
-    repository: { id: "repo.iter20-yaml", name: "iter20-yaml", defaultBranch: "main" },
-    componentIds: [],
-    subgraphs: [],
-    templateVersion: "v1",
-  });
-  assert.ok(alignmentWorkflowFile);
-  assert.equal(alignmentWorkflowFile.path, ".github/workflows/nexus-alignment.yml");
-  // Parses the whole file, markers included -- exactly what GitHub Actions
-  // itself would receive, not only the extracted region.
-  const parsed = parseYaml(alignmentWorkflowFile.content);
-  assert.deepEqual(parsed, {
-    name: "nexus-alignment",
-    on: ["pull_request"],
-    jobs: {
-      verify: {
-        "runs-on": "ubuntu-latest",
-        steps: [
-          { run: 'curl -X POST "$NEXUS_BASE_URL/alignment/verify" --data @.nexus/repository.json\n' },
-        ],
-      },
-    },
-  });
-});
-
-test("checkDrift against the CI workflow file specifically: a hand-edit outside the (now YAML-native) markers does not trigger drift; one inside does", async () => {
-  await declareRepository(db, { id: "repo.iter20-drift", name: "iter20-drift", provider: "noop" });
-  await provisionRepository(db, "repo.iter20-drift", noop);
-  await registerMapping(db, "repo.iter20-drift", "comp.invoice-service", false);
-  const [, , alignmentWorkflowFile] = await generateProjection(db, "repo.iter20-drift", "v1");
-  assert.ok(alignmentWorkflowFile);
-
-  const original = alignmentWorkflowFile.content;
-  const region = extractManagedRegion(original);
-  assert.ok(region, "generated CI workflow content must contain a managed region");
-
-  const editedOutside = `# a human added this note above the generated region\n${original}\n# and this one below`;
-  const outsideResult = await checkDrift(db, "repo.iter20-drift", alignmentWorkflowFile.path, editedOutside);
-  assert.equal(outsideResult.drifted, false);
-  assert.equal(outsideResult.currentHash, outsideResult.storedHash);
-
-  const editedInside = original.replace(region, region.replace("ubuntu-latest", "ubuntu-22.04"));
-  const insideResult = await checkDrift(db, "repo.iter20-drift", alignmentWorkflowFile.path, editedInside);
-  assert.equal(insideResult.drifted, true);
-  assert.notEqual(insideResult.currentHash, insideResult.storedHash);
-});
+// The two tests formerly here — "render()'s CI workflow file is valid
+// YAML" and "checkDrift against the CI workflow file" — tested
+// `.github/workflows/nexus-alignment.yml` specifically. Iteration 21
+// (`docs/history/iteration-21/SCOPE.md`) removed that file entirely,
+// resolving Open Question #7; both tests are removed with it, not left
+// failing or retargeted at a file that no longer exists.
